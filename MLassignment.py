@@ -16,7 +16,5 @@ with tarfile.open(fileobj=BytesIO(res.raw.read()),mode='r:gz') as tar:
         file = tar.extractfile(m)
         df = pd.read_csv(file)
         print(df)
+        print(df.info())
 
-#sdf
-#sdas
-#sdfs
