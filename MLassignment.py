@@ -15,6 +15,9 @@ with tarfile.open(fileobj=BytesIO(res.raw.read()),mode='r:gz') as tar:
     for m in tar.getmembers():
         file = tar.extractfile(m)
         df = pd.read_csv(file)
-        print(df)
-        print(df.info())
+        #print(df)
+        #print(df.info())
+        sub_df = df[['date_onset_symptoms','date_admission_hospital','date_confirmation','travel_history_dates','date_death_or_discharge']]
+        print(sub_df)
+        print(sub_df.iloc[[500000,1000000,1500000,2000000,2500000]])
 
