@@ -2,12 +2,12 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import sklearn
 import tarfile
 from io import BytesIO
 import requests
 from requests.exceptions import HTTPError
 import xlsxwriter
+from sklearn.model_selection import train_test_split
 
 #URL for data 
 url = 'https://github.com/beoutbreakprepared/nCoV2019/blob/master/latest_data/latestdata.tar.gz?raw=true'
@@ -56,12 +56,12 @@ else:
             #df.to_csv('./covid_data.csv')
 
             #Look at data
-            print(df.keys())
+            #print(df.keys())
             #Problem: Prediction of hospitalisation
-            print("Outcome",": ")
-            print(df['outcome'].value_counts())
-            print("Nan: ",df['outcome'].isna().sum())
-            print()
+            #print("Outcome",": ")
+            #print(df['outcome'].value_counts())
+            #print("Nan: ",df['outcome'].isna().sum())
+            #print()
             #First clean the data
             df['outcome'].replace(to_replace=['died','death','Dead','Death','Died','dead'],value='Deceased',inplace=True)
             df['outcome'].replace(to_replace=['recovered','released from quarantine','recovering at home 03.03.2020'],value='Recovered',inplace=True)
@@ -73,9 +73,9 @@ else:
             #First work with only subset of data where outcome!=Nan
             sub_df = df[df['outcome'].isna()==False]
             sub_df = sub_df[sub_df['outcome']!='https://www.mspbs.gov.py/covid-19.php']
-            print("Outcome: ")
-            print(sub_df['outcome'].value_counts())
-            print("Nan: ",sub_df['outcome'].isna().sum())
+            #print("Outcome: ")
+            #print(sub_df['outcome'].value_counts())
+            #print("Nan: ",sub_df['outcome'].isna().sum())
 
             smaller_df = sub_df[sub_df['sex'].isna()==False]
             smaller_df = smaller_df[smaller_df['age'].isna()==False]
@@ -84,9 +84,16 @@ else:
             #Work only with data, where sex, age and outcome is labelled
             #Split data into test and training set
             #Create a new column called deceased_binary
-            y=[True if (smaller_df['outcome'][i])=='Deceased' else False for i in range(len(smaller_df['outcome'])) ]
-            smaller_df['deceased_binary']=y
-            X_train, X_test, y_train, y_test = train_test_split(df, y, test_size=0.2)
+            print(smaller_df['outcome'].value_counts())
+            deceased_binary=[True if (smaller_df['outcome'][i])=='Deceased' else False for i in smaller_df.index]
+            smaller_df['deceased_binary']=deceased_binary
+            #Drop the outcome column, instead we now have the deceased binary
+            smaller_df.drop('outcome',axis=1,inplace=True)
+            y=pd.Series(deceased_binary)
+            X_train, X_test, y_train, y_test = train_test_split(smaller_df, y, test_size=0.2,random_state=0)
             print(X_train.shape, y_train.shape)
             print(X_test.shape, y_test.shape)
+
+            ##Feature reduction
+
 
