@@ -56,6 +56,8 @@
 *.csv
 *.xlsx
 *.docx
+*.pdf
+*.PNG
 ML-code_screenshot.PNG
 ML-date_range.PNG
 Machine Learning assignment preparation.docx
