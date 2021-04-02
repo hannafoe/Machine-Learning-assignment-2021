@@ -78,8 +78,8 @@ else:
             
             
             #Work only with subset of data where outcome!=Nan
-            #sub_df = df[df['outcome'].isna()==False]
-            sub_df = df[df['outcome']!='https://www.mspbs.gov.py/covid-19.php']
+            sub_df = df[df['outcome'].isna()==False]
+            sub_df = sub_df[sub_df['outcome']!='https://www.mspbs.gov.py/covid-19.php']
             #Work with subset of data where sex and age is not missing
             smaller_df = sub_df[sub_df['sex'].isna()==False]
             smaller_df = smaller_df[smaller_df['age'].isna()==False]
@@ -103,7 +103,7 @@ else:
             smaller_df.drop('notes_for_discussion',axis=1,inplace=True)
             smaller_df.drop('data_moderator_initials',axis=1,inplace=True)
             smaller_df.drop('ID',axis=1,inplace=True)
-            smaller_df.drop('admin_id',axis=1,inplace=True)
+            #smaller_df.drop('admin_id',axis=1,inplace=True)
             #Drop those with many nan values
             for v in smaller_df.columns:
                 print(v,": ")
@@ -122,7 +122,17 @@ else:
             smaller_df['difference_admission_deathordischarge']=(smaller_df['date_admission_hospital'] - smaller_df['date_death_or_discharge']).dt.days
             smaller_df['difference_confirmation_deathordischarge']=(smaller_df['date_confirmation'] - smaller_df['date_death_or_discharge']).dt.days
             smaller_df['difference_travel_confirmation']=(smaller_df['travel_history_dates'] - smaller_df['date_confirmation']).dt.days
-
+            
+            #cyclical data (dates), change to be able to process it
+            dates = ['date_confirmation_year','date_confirmation_month','date_confirmation_day','date_confirmation_dayofweek']
+            def encode_cyclic_data(df, feature, max_val): #sin,cos, transformation for cyclic data
+                df[feature + '_sin'] = np.sin(2 * np.pi * df[feature]/max_val)
+                df[feature + '_cos'] = np.cos(2 * np.pi * df[feature]/max_val)
+                return df
+            smaller_df = encode_cyclic_data(smaller_df,dates[0],2020)
+            smaller_df = encode_cyclic_data(smaller_df,dates[1],12)
+            smaller_df = encode_cyclic_data(smaller_df,dates[2],365)
+            smaller_df = encode_cyclic_data(smaller_df,dates[3],7)
 
             ##Do something with different age stuff
             smaller_df['age'].replace(to_replace=['0','1','2','3','4','5','6','7','8','9','0-10','0-6','1.75','0.6666666667','0.5','0.25','0.58333','0.08333','6 weeks','0.75',0.0,1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,'1.5','0.4','0.3','2.5','0.2','0.7','0.1','3.5','0.9','0.6','0-1','18 months','18 month','7 months','4 months','13 month','5 months','8 month','6 months','9 month','5 month','11 month','5-14','0-4','00-04','05-14','5-9'],value='0-9',inplace=True)
@@ -149,16 +159,23 @@ else:
             print(X_train.shape, y_train.shape)
             print(X_test.shape, y_test.shape)
 
-            #Logistic Regression
-            log_regression = LogisticRegression()
-            log_regression.fit(X_train,y_train)
+            ##Encode data
+            #numerical data
+            #numerical_data = X_train[["latitude","longitude","admin_id","difference_onset_admission",
+            #"difference_onset_confirmation","difference_travel_onset","difference_onset_deathordischarge",
+            #"difference_confirmation_admission","difference_travel_admission","difference_admission_deathordischarge",
+            #"difference_confirmation_deathordischarge","difference_travel_confirmation"]]
+            numerical_data = X_train.select_dtypes(include=['float64','int64'])
+            num_pipeline = Pipeline([
+                ('std_scaler', StandardScaler()),
+            ])
 
-            #prediction
-            log_prediction = logistic_regression.predict(X_test)
+            #categorical data
+            categorical_data = X_train.select_dtypes(include=['object','bool']).columns
+            trans = [('cat',OneHotEncoder(),categorical_data),('num',num_pipeline,numerical_data)]
+            full_pipeline = ColumnTransformer(transformer=trans)
             
-            #Use score to get accuracy of model
-            log_score=log_regression.score(X_test,y_test)
-            print(log_score)
+            X_train = full_pipeline.fit_transform(X_train)
 
             '''
             #Example online
@@ -205,6 +222,18 @@ else:
             #print(X_new.shape)
             #print(X_new)
             '''
+
+            #Logistic Regression
+            log_regression = LogisticRegression()
+            log_regression.fit(X_train,y_train)
+
+            #prediction
+            X_test = full_pipeline.transform(X_test)
+            log_prediction = logistic_regression.predict(X_test)
+            
+            #Use score to get accuracy of model
+            log_score=log_regression.score(X_test,y_test)
+            print(log_score)
             
 
 
