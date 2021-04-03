@@ -13,6 +13,9 @@ from sklearn.feature_selection import chi2
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
 
 #URL for data 
 url = 'https://github.com/beoutbreakprepared/nCoV2019/blob/master/latest_data/latestdata.tar.gz?raw=true'
@@ -33,7 +36,7 @@ else:
             df = pd.read_csv(file)
             
             print(df.info())
-            print("Age: ",df['age'].unique())
+            #print("Age: ",df['age'].unique())
 
             
             #print(df['chronic_disease_binary'].value_counts())
@@ -103,25 +106,44 @@ else:
             smaller_df.drop('notes_for_discussion',axis=1,inplace=True)
             smaller_df.drop('data_moderator_initials',axis=1,inplace=True)
             smaller_df.drop('ID',axis=1,inplace=True)
+            ##Drop all location data except for longitude and latitude
+            smaller_df.drop('city',axis=1,inplace=True)
+            smaller_df.drop('province',axis=1,inplace=True)
+            smaller_df.drop('country',axis=1,inplace=True)
+            smaller_df.drop('geo_resolution',axis=1,inplace=True)
+            smaller_df.drop('location',axis=1,inplace=True)
+            smaller_df.drop('admin3',axis=1,inplace=True)
+            smaller_df.drop('admin2',axis=1,inplace=True)
+            smaller_df.drop('admin1',axis=1,inplace=True)
+            smaller_df.drop('country_new',axis=1,inplace=True)
+            ###
+            smaller_df.drop('symptoms',axis=1,inplace=True)
+            smaller_df.drop('lives_in_Wuhan',axis=1,inplace=True)
+            smaller_df.drop('additional_information',axis=1,inplace=True)
+            smaller_df.drop('chronic_disease',axis=1,inplace=True)
+            smaller_df.drop('source',axis=1,inplace=True)
             #smaller_df.drop('admin_id',axis=1,inplace=True)
             #Drop those with many nan values
-            for v in smaller_df.columns:
+            n = len(smaller_df.index)
+            for v in date_features:
                 print(v,": ")
                 print(smaller_df[v].value_counts())
-                print("Nan: ",smaller_df[v].isna().sum())
+                print("Nan:",smaller_df[v].isna().sum())
+                print("Not nan: ",n-smaller_df[v].isna().sum())
                 print()
             #Want to use dates, but there are a lot of missing dates in all the date features except for confirmation date
             #Make different calculations, some with and some without the dates
             #['date_onset_symptoms','date_admission_hospital','date_confirmation','travel_history_dates','date_death_or_discharge']
-            smaller_df['difference_onset_admission']=(smaller_df['date_onset_symptoms'] - smaller_df['date_admission_hospital']).dt.days
-            smaller_df['difference_onset_confirmation']=(smaller_df['date_onset_symptoms'] - smaller_df['date_confirmation']).dt.days
-            smaller_df['difference_travel_onset']=(smaller_df['travel_history_dates'] - smaller_df['date_onset_symptoms']).dt.days
-            smaller_df['difference_onset_deathordischarge']=(smaller_df['date_onset_symptoms'] - smaller_df['date_death_or_discharge']).dt.days
-            smaller_df['difference_confirmation_admission']=(smaller_df['date_confirmation'] - smaller_df['date_admission_hospital']).dt.days
-            smaller_df['difference_travel_admission']=(smaller_df['travel_history_dates'] - smaller_df['date_admission_hospital']).dt.days
-            smaller_df['difference_admission_deathordischarge']=(smaller_df['date_admission_hospital'] - smaller_df['date_death_or_discharge']).dt.days
-            smaller_df['difference_confirmation_deathordischarge']=(smaller_df['date_confirmation'] - smaller_df['date_death_or_discharge']).dt.days
-            smaller_df['difference_travel_confirmation']=(smaller_df['travel_history_dates'] - smaller_df['date_confirmation']).dt.days
+            
+            #smaller_df['difference_onset_admission']=(smaller_df['date_onset_symptoms'] - smaller_df['date_admission_hospital']).dt.days
+            #smaller_df['difference_onset_confirmation']=(smaller_df['date_onset_symptoms'] - smaller_df['date_confirmation']).dt.days
+            #smaller_df['difference_travel_onset']=(smaller_df['travel_history_dates'] - smaller_df['date_onset_symptoms']).dt.days
+            #smaller_df['difference_onset_deathordischarge']=(smaller_df['date_onset_symptoms'] - smaller_df['date_death_or_discharge']).dt.days
+            #smaller_df['difference_confirmation_admission']=(smaller_df['date_confirmation'] - smaller_df['date_admission_hospital']).dt.days
+            #smaller_df['difference_travel_admission']=(smaller_df['travel_history_dates'] - smaller_df['date_admission_hospital']).dt.days
+            #smaller_df['difference_admission_deathordischarge']=(smaller_df['date_admission_hospital'] - smaller_df['date_death_or_discharge']).dt.days
+            #smaller_df['difference_confirmation_deathordischarge']=(smaller_df['date_confirmation'] - smaller_df['date_death_or_discharge']).dt.days
+            #smaller_df['difference_travel_confirmation']=(smaller_df['travel_history_dates'] - smaller_df['date_confirmation']).dt.days
             
             #cyclical data (dates), change to be able to process it
             dates = ['date_confirmation_year','date_confirmation_month','date_confirmation_day','date_confirmation_dayofweek']
@@ -133,6 +155,12 @@ else:
             smaller_df = encode_cyclic_data(smaller_df,dates[1],12)
             smaller_df = encode_cyclic_data(smaller_df,dates[2],365)
             smaller_df = encode_cyclic_data(smaller_df,dates[3],7)
+
+            smaller_df.drop('date_onset_symptoms',axis=1,inplace=True)
+            smaller_df.drop('date_admission_hospital',axis=1,inplace=True)
+            smaller_df.drop('date_confirmation',axis=1,inplace=True)
+            smaller_df.drop('travel_history_dates',axis=1,inplace=True)
+            smaller_df.drop('date_death_or_discharge',axis=1,inplace=True)
 
             ##Do something with different age stuff
             smaller_df['age'].replace(to_replace=['0','1','2','3','4','5','6','7','8','9','0-10','0-6','1.75','0.6666666667','0.5','0.25','0.58333','0.08333','6 weeks','0.75',0.0,1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,'1.5','0.4','0.3','2.5','0.2','0.7','0.1','3.5','0.9','0.6','0-1','18 months','18 month','7 months','4 months','13 month','5 months','8 month','6 months','9 month','5 month','11 month','5-14','0-4','00-04','05-14','5-9'],value='0-9',inplace=True)
@@ -165,15 +193,20 @@ else:
             #"difference_onset_confirmation","difference_travel_onset","difference_onset_deathordischarge",
             #"difference_confirmation_admission","difference_travel_admission","difference_admission_deathordischarge",
             #"difference_confirmation_deathordischarge","difference_travel_confirmation"]]
-            numerical_data = X_train.select_dtypes(include=['float64','int64'])
+            numerical_data = list(X_train.select_dtypes(include=['float64','int64']))
             num_pipeline = Pipeline([
+                ('imputer', SimpleImputer(strategy = 'most_frequent')),
                 ('std_scaler', StandardScaler()),
             ])
 
             #categorical data
-            categorical_data = X_train.select_dtypes(include=['object','bool']).columns
-            trans = [('cat',OneHotEncoder(),categorical_data),('num',num_pipeline,numerical_data)]
-            full_pipeline = ColumnTransformer(transformer=trans)
+            categorical_data = list(X_train.select_dtypes(include=['object','bool']).columns)
+            #trans = [('cat',OneHotEncoder(),categorical_data),('num',num_pipeline,numerical_data)]
+            cat_pipeline = Pipeline(steps = [
+                ('imputer', SimpleImputer(strategy = 'most_frequent')),
+                ('lab_enc', OneHotEncoder(handle_unknown='ignore'))])
+            full_pipeline = ColumnTransformer([('cat',cat_pipeline,categorical_data),('num',num_pipeline,numerical_data)])
+            #pipeline = Pipeline(steps=[('prep',col_transform), ('m', model)])
             
             X_train = full_pipeline.fit_transform(X_train)
 
@@ -224,12 +257,12 @@ else:
             '''
 
             #Logistic Regression
-            log_regression = LogisticRegression()
+            log_regression = LogisticRegression(max_iter=500,random_state=0)
             log_regression.fit(X_train,y_train)
 
             #prediction
             X_test = full_pipeline.transform(X_test)
-            log_prediction = logistic_regression.predict(X_test)
+            log_prediction = log_regression.predict(X_test)
             
             #Use score to get accuracy of model
             log_score=log_regression.score(X_test,y_test)
