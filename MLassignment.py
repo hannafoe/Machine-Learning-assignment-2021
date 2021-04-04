@@ -8,14 +8,15 @@ import requests
 from requests.exceptions import HTTPError
 import xlsxwriter
 from sklearn.model_selection import train_test_split
-from sklearn.feature_selection import SelectKBest
-from sklearn.feature_selection import chi2
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
-from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import SelectKBest,chi2
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder,StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
+from sklearn.metrics import precision_recall_curve,classification_report,roc_curve, auc
+from sklearn.metrics import average_precision_score
+
 
 #URL for data 
 url = 'https://github.com/beoutbreakprepared/nCoV2019/blob/master/latest_data/latestdata.tar.gz?raw=true'
@@ -204,11 +205,142 @@ else:
             #trans = [('cat',OneHotEncoder(),categorical_data),('num',num_pipeline,numerical_data)]
             cat_pipeline = Pipeline(steps = [
                 ('imputer', SimpleImputer(strategy = 'most_frequent')),
-                ('lab_enc', OneHotEncoder(handle_unknown='ignore'))])
-            full_pipeline = ColumnTransformer([('cat',cat_pipeline,categorical_data),('num',num_pipeline,numerical_data)])
-            #pipeline = Pipeline(steps=[('prep',col_transform), ('m', model)])
+                ('encoder', OneHotEncoder(handle_unknown='ignore'))])
+            full_pipeline = ColumnTransformer([('cat',cat_pipeline,categorical_data),('num',num_pipeline,numerical_data)],remainder='passthrough')
+            #Logistic Regression
+            log_regression = LogisticRegression(max_iter=500,random_state=0)
+            log_pipeline = Pipeline(steps=[('prep',full_pipeline), ('model', log_regression)])
+            log_pipeline.fit(X_train,y_train)
+
+            #########################
+            #Using prediction pipeline in a grid search
+            #param_grid = {
+            #    'preprocessor__num__imputer__strategy': ['mean', 'median'],
+            #    'classifier__C': [0.1, 1.0, 10, 100],
+            #}
+
+            #grid_search = GridSearchCV(clf, param_grid, cv=10)
+            #grid_search
+            #grid_search.fit(X_train, y_train)
+
+            #print(f"Best params:")
+            #print(grid_search.best_params_)
+            #print(f"Internal CV score: {grid_search.best_score_:.3f}")
+            #cv_results = pd.DataFrame(grid_search.cv_results_)
+            #cv_results = cv_results.sort_values("mean_test_score", ascending=False)
+            #cv_results[["mean_test_score", "std_test_score",
+            #            "param_preprocessor__num__imputer__strategy",
+            #            "param_classifier__C"
+            #            ]].head(5)
+            #print(("best logistic regression from grid search: %.3f"
+            #% grid_search.score(X_test, y_test)))
+                
+
+            #prediction
+            #X_test = full_pipeline.transform(X_test)
+            log_prediction_y = log_pipeline.predict(X_test)
+            log_score_y = log_pipeline.predict_proba(X_test)
+            probs = log_score_y[:,1]
             
-            X_train = full_pipeline.fit_transform(X_train)
+            #Use score to get accuracy of model
+            log_score=log_pipeline.score(X_test, y_test)
+            print("model score: %.5f" % log_score)
+
+            #check results with confusion matrix
+            log_confusion_m = pd.crosstab(y_test,log_prediction_y,rownames=['Real Values'],colnames=['Predicted Values'],margins=True)
+            print(log_confusion_m,'\n')
+            print("Classification report:")
+            print(classification_report(y_test, log_prediction_y))
+            #roc curve
+            def roc_and_precision_recall(y,score_y):
+                fpr, tpr, thresh = roc_curve(y, score_y)
+                precision, recall, thresholds = precision_recall_curve(y, score_y)
+                average_precision = average_precision_score(y,score_y)
+                fig, axs = plt.subplots(1,2)
+                axs[0].plot(fpr,tpr,color='orange',label='ROC curve')
+                axs[0].plot([0,1],[0,1],color='navy',linestyle='--')
+                axs[0].set_title('ROC Curve')
+                axs[0].set(xlabel='FPR',ylabel='TPR')
+                axs[0].legend(loc="lower right")
+                axs[1].plot(recall,precision,color='navy',label='Precision recall curve')
+                axs[1].set_title('Precision-Recall curve')
+                axs[1].set(xlabel='Recall',ylabel='Precision')
+                axs[1].legend(loc="lower left")
+                fig.suptitle('Average precision-recall score: {0:0.2f}'.format(average_precision))
+                fig.tight_layout()
+                plt.show()
+            roc_and_precision_recall(y_test,probs)
+
+            ##rank the probabilities into percentile bins
+            
+            log_results = pd.DataFrame({'Target':y_test,'class_result':log_prediction_y,'probs':probs})
+            log_results['rank']=log_results['probs'].rank(ascending=1).astype(int)
+            log_results['rank_pct']=log_results['probs'].rank(ascending=1,pct=True)
+            bins = 10
+            def bin_analysis(df,bin_num,plot):
+                cols = ['min_rank','max_rank','min_prob','max_prob','num_pos_instances','bin_size','pos_rate']
+                roc_cols = ['min_prob','max_prob','Sensitivity (TPR)','FNR','FPR','Specificity (TNR)']
+                num_ins = len(df.index)
+                bin_df = pd.DataFrame(columns=cols)
+                roc_df = pd.DataFrame(columns=roc_cols)
+                count = 0
+                bin_size = int(num_ins/bin_num)
+                c=0
+                bin_maxs=[]
+                for i in range(bin_num):
+                    if (i%10)<int((num_ins/bin_num-bin_size)*10):
+                        c+=bin_size+1
+                        bin_maxs.append(c)
+                    else:
+                        c+=bin_size
+                        bin_maxs.append(c)
+                bin_maxs[bin_num-1]=num_ins
+                for i in range(bin_num):
+                    df_sub = df[(df['rank']>count) & (df['rank']<=bin_maxs[i])]
+                    count+=df_sub.shape[0]
+                    num_pos_instances=len(df_sub[df_sub['Target']==1])
+                    bin_df.loc[i]=([count-df_sub.shape[0],count,min(df_sub['probs']),max(df_sub['probs']),num_pos_instances,df_sub.shape[0],num_pos_instances/df_sub.shape[0]])
+                    
+                    sub_df_sm = df[df['rank']<bin_maxs[i]]
+                    sub_df_l = df[df['rank']>=bin_maxs[i]]
+                    TP = len(sub_df_l[sub_df_l['Target']==1])
+                    FN = len(sub_df_sm[sub_df_sm['Target']==1])
+                    TPR = TP/(TP+FN)
+                    FP = len(sub_df_l.index)-TP
+                    TN = len(sub_df_sm.index)-FN
+                    FPR = FP/(FP+TN)
+                    roc_df.loc[i]=[min(df_sub['probs']),max(df_sub['probs']),TPR,1-TPR,FPR,1-FPR]
+                print("Positive counts per bin: ")
+                print(bin_df)
+                pos =len(df[df['Target']==1])
+                print("Overall: ")
+                print("Number of positive instances: ", pos)
+                print("Number of instances: ",len(df.index))
+                print("Positive rate: ",pos/len(df.index))
+                if plot==True:
+                    fig, ax = plt.subplots()
+                    ax = sns.barplot(x=bin_df.index,y='pos_rate',data=bin_df)
+                    ax.set_title("Positive rate per bin", fontsize=10, fontweight='bold')
+                    plt.xlabel("Bins")
+                    plt.ylabel("Positive rate")
+                    fig.tight_layout()
+                    plt.show()
+                print("ROC stats: ")
+                print(roc_df)
+
+            bin_analysis(log_results,10,True)
+
+            ##Feature importance analysis
+            df_imp = pd.DataFrame(np.std(X_train, 0), columns=['std'])
+            print(log_regression.coef_)
+            df_imp['coef'] = log_regression.coef_[0]
+            df_imp['coef*std'] = [list(log_regression.coef_[0])[i]*list(np.std(X_train, 0))[i] for i in range(len(df_imp.index))]
+            df_imp['abs(coef*std)'] = np.abs(df_imp['coef*std'])
+            df_imp['log_rank'] = dfimp['abs(coef*std)'].rank(ascending=False)
+            df_rank = df_imp.sort_values('log_rank',ascending=True)
+            print(df_rank)
+
+
 
             '''
             #Example online
@@ -256,17 +388,7 @@ else:
             #print(X_new)
             '''
 
-            #Logistic Regression
-            log_regression = LogisticRegression(max_iter=500,random_state=0)
-            log_regression.fit(X_train,y_train)
-
-            #prediction
-            X_test = full_pipeline.transform(X_test)
-            log_prediction = log_regression.predict(X_test)
             
-            #Use score to get accuracy of model
-            log_score=log_regression.score(X_test,y_test)
-            print(log_score)
             
 
 
