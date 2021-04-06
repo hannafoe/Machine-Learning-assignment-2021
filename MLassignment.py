@@ -99,7 +99,6 @@ else:
             smaller_df = sub_df[sub_df['sex'].isna()==False]
             smaller_df = smaller_df[smaller_df['age'].isna()==False]
             smaller_df = smaller_df[smaller_df['date_confirmation'].isna()==False]
-            smaller_df = smaller_df[smaller_df['date_onset_symptoms'].isna()==False]
             print(smaller_df)
 
             #Convert dates into dat format
@@ -126,7 +125,7 @@ else:
             ##Drop all location data except for longitude and latitude
             smaller_df.drop('city',axis=1,inplace=True)
             smaller_df.drop('province',axis=1,inplace=True)
-            smaller_df.drop('country',axis=1,inplace=True)
+            #smaller_df.drop('country',axis=1,inplace=True)
             smaller_df.drop('geo_resolution',axis=1,inplace=True)
             smaller_df.drop('location',axis=1,inplace=True)
             smaller_df.drop('admin3',axis=1,inplace=True)
@@ -153,7 +152,7 @@ else:
             #['date_onset_symptoms','date_admission_hospital','date_confirmation','travel_history_dates','date_death_or_discharge']
             
             #smaller_df['difference_onset_admission']=(smaller_df['date_onset_symptoms'] - smaller_df['date_admission_hospital']).dt.days
-            smaller_df['difference_onset_confirmation']=(smaller_df['date_onset_symptoms'] - smaller_df['date_confirmation']).dt.days
+            #smaller_df['difference_onset_confirmation']=(smaller_df['date_onset_symptoms'] - smaller_df['date_confirmation']).dt.days
             #smaller_df['difference_travel_onset']=(smaller_df['travel_history_dates'] - smaller_df['date_onset_symptoms']).dt.days
             #smaller_df['difference_onset_deathordischarge']=(smaller_df['date_onset_symptoms'] - smaller_df['date_death_or_discharge']).dt.days
             #smaller_df['difference_confirmation_admission']=(smaller_df['date_confirmation'] - smaller_df['date_admission_hospital']).dt.days
@@ -203,7 +202,7 @@ else:
             #Drop the outcome column, instead we now have the deceased binary
             smaller_df.drop('outcome',axis=1,inplace=True)
             y=pd.Series(deceased_binary)
-            '''
+            
             categorical_data = list(smaller_df.select_dtypes(include=['object','bool']).columns)
             smaller_df[categorical_data] = smaller_df[categorical_data].apply(lambda series: pd.Series(
                 LabelEncoder().fit_transform(series[series.notnull()]),
@@ -213,7 +212,7 @@ else:
                            initial_strategy='most_frequent',
                            max_iter=10, random_state=0)
 
-            smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])'''
+            smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])
             ##Split data into test and training set
             X_train, X_test, y_train, y_test = train_test_split(smaller_df, y, test_size=0.2,random_state=0,stratify=y,shuffle=True)
             print(X_train.shape, y_train.shape)
@@ -311,14 +310,6 @@ else:
             log_score=log_pipeline.score(X_test, y_test)
             print("model score: %.5f" % log_score)
 
-            #Feature importance
-            feat_imp = permutation_importance(log_pipeline,X_train,y_train,n_repeats=10,random_state=0,n_jobs=-1)
-            sorted_feat_imp = feat_imp.importances_mean.argsort()
-            f, ax = plt.subplots()
-            ax.boxplot(feat_imp.importances[sorted_feat_imp].T,vert=False,labels=X_train.columns[sorted_feat_imp])
-            ax.set_title("Permutation Importances of training set")
-            f.tight_layout()
-            plt.show()
 
             ##
             ##Heat map use one-hot encoding, can use as first step for feature selection!!
@@ -414,6 +405,15 @@ else:
                 print(roc_df)
 
             bin_analysis(log_results,10,True)
+
+            #Feature importance
+            feat_imp = permutation_importance(log_pipeline,X_train,y_train,n_repeats=10,random_state=0,n_jobs=-1)
+            sorted_feat_imp = feat_imp.importances_mean.argsort()
+            f, ax = plt.subplots()
+            ax.boxplot(feat_imp.importances[sorted_feat_imp].T,vert=False,labels=X_train.columns[sorted_feat_imp])
+            ax.set_title("Permutation Importances of training set")
+            f.tight_layout()
+            plt.show()
 
             ##Feature importance analysis
             #df_imp = pd.DataFrame(np.std(X_train, 0), columns=['std'])
