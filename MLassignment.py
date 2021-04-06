@@ -99,6 +99,7 @@ else:
             smaller_df = sub_df[sub_df['sex'].isna()==False]
             smaller_df = smaller_df[smaller_df['age'].isna()==False]
             smaller_df = smaller_df[smaller_df['date_confirmation'].isna()==False]
+            smaller_df = smaller_df[smaller_df['date_onset_symptoms'].isna()==False]
             print(smaller_df)
 
             #Convert dates into dat format
@@ -110,6 +111,10 @@ else:
             smaller_df['date_confirmation'+'_month']=smaller_df['date_confirmation'].dt.month
             smaller_df['date_confirmation'+'_day']=smaller_df['date_confirmation'].dt.day
             smaller_df['date_confirmation'+'_dayofweek']=smaller_df['date_confirmation'].dt.dayofweek
+            smaller_df['date_onset_symptoms'+'_year']=smaller_df['date_onset_symptoms'].dt.year 
+            smaller_df['date_onset_symptoms'+'_month']=smaller_df['date_onset_symptoms'].dt.month
+            smaller_df['date_onset_symptoms'+'_day']=smaller_df['date_onset_symptoms'].dt.day
+            smaller_df['date_onset_symptoms'+'_dayofweek']=smaller_df['date_onset_symptoms'].dt.dayofweek
             print(smaller_df.info())
 
             ##Check which features to drop...
@@ -148,7 +153,7 @@ else:
             #['date_onset_symptoms','date_admission_hospital','date_confirmation','travel_history_dates','date_death_or_discharge']
             
             #smaller_df['difference_onset_admission']=(smaller_df['date_onset_symptoms'] - smaller_df['date_admission_hospital']).dt.days
-            #smaller_df['difference_onset_confirmation']=(smaller_df['date_onset_symptoms'] - smaller_df['date_confirmation']).dt.days
+            smaller_df['difference_onset_confirmation']=(smaller_df['date_onset_symptoms'] - smaller_df['date_confirmation']).dt.days
             #smaller_df['difference_travel_onset']=(smaller_df['travel_history_dates'] - smaller_df['date_onset_symptoms']).dt.days
             #smaller_df['difference_onset_deathordischarge']=(smaller_df['date_onset_symptoms'] - smaller_df['date_death_or_discharge']).dt.days
             #smaller_df['difference_confirmation_admission']=(smaller_df['date_confirmation'] - smaller_df['date_admission_hospital']).dt.days
@@ -158,7 +163,7 @@ else:
             #smaller_df['difference_travel_confirmation']=(smaller_df['travel_history_dates'] - smaller_df['date_confirmation']).dt.days
             
             #cyclical data (dates), change to be able to process it
-            dates = ['date_confirmation_month','date_confirmation_day','date_confirmation_dayofweek'] #except year which is not cyclic
+            dates = ['date_confirmation_month','date_confirmation_day','date_confirmation_dayofweek','date_onset_symptoms_month','date_onset_symptoms_day','date_onset_symptoms_dayofweek'] #except year which is not cyclic
             def encode_cyclic_data(df, feature, max_val): #sin,cos, transformation for cyclic data
                 df[feature + '_sin'] = np.sin(2 * np.pi * df[feature]/max_val)
                 df[feature + '_cos'] = np.cos(2 * np.pi * df[feature]/max_val)
@@ -166,6 +171,9 @@ else:
             smaller_df = encode_cyclic_data(smaller_df,dates[0],12)
             smaller_df = encode_cyclic_data(smaller_df,dates[1],365)
             smaller_df = encode_cyclic_data(smaller_df,dates[2],7)
+            smaller_df = encode_cyclic_data(smaller_df,dates[3],12)
+            smaller_df = encode_cyclic_data(smaller_df,dates[4],365)
+            smaller_df = encode_cyclic_data(smaller_df,dates[5],7)
             for dat in dates:
                 smaller_df.drop(dat,axis=1,inplace=True)
 
@@ -195,6 +203,7 @@ else:
             #Drop the outcome column, instead we now have the deceased binary
             smaller_df.drop('outcome',axis=1,inplace=True)
             y=pd.Series(deceased_binary)
+            '''
             categorical_data = list(smaller_df.select_dtypes(include=['object','bool']).columns)
             smaller_df[categorical_data] = smaller_df[categorical_data].apply(lambda series: pd.Series(
                 LabelEncoder().fit_transform(series[series.notnull()]),
@@ -204,7 +213,7 @@ else:
                            initial_strategy='most_frequent',
                            max_iter=10, random_state=0)
 
-            smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])
+            smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])'''
             ##Split data into test and training set
             X_train, X_test, y_train, y_test = train_test_split(smaller_df, y, test_size=0.2,random_state=0,stratify=y,shuffle=True)
             print(X_train.shape, y_train.shape)
@@ -242,7 +251,7 @@ else:
             numerical_data = list(X_train.select_dtypes(include=['float64','int64']))
             num_pipeline = Pipeline([
                 #('imputer', SimpleImputer(strategy = 'most_frequent')),
-                ('imputer', IterativeImputer(random_state=0, estimator=KNeighborsRegressor(n_neighbors=5,n_jobs=-1))),
+                ('imputer', IterativeImputer(random_state=0, estimator=KNeighborsRegressor(n_neighbors=10,n_jobs=-1))),
                 ('std_scaler', StandardScaler())
             ])
 
@@ -251,13 +260,13 @@ else:
             
             #trans = [('cat',OneHotEncoder(),categorical_data),('num',num_pipeline,numerical_data)]
             cat_pipeline = Pipeline(steps = [
-                ('imputer', SimpleImputer(strategy = 'most_frequent'))
+                ('imputer', SimpleImputer(strategy = 'most_frequent')),
                 #('encoder', OneHotEncoder(handle_unknown='ignore')),
                 #('encoder', OrdinalEncoder()),
                 #('imputer', IterativeImputer(random_state=0, estimator=ExtraTreesRegressor(n_estimators=10, random_state=0))),
                 #('imp', SimpleImputer(strategy = 'most_frequent'))
                 #('imputer',KNNImputer(n_neighbors=5))
-                #('encoder', OneHotEncoder(handle_unknown='ignore'))
+                ('encoder', OneHotEncoder(handle_unknown='ignore'))
                 #IterativeImputer(estimator=RandomForestClassifier(), initial_strategy='most_frequent', max_iter=10, random_state=0)
             ])
             full_pipeline = ColumnTransformer([('cat',cat_pipeline,categorical_data),('num',num_pipeline,numerical_data)],remainder='passthrough')
