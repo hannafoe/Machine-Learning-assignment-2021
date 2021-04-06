@@ -9,19 +9,30 @@ from requests.exceptions import HTTPError
 import xlsxwriter
 from sklearn.model_selection import train_test_split
 from sklearn.feature_selection import SelectKBest,chi2
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder,StandardScaler
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder,StandardScaler, OrdinalEncoder
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import SimpleImputer,IterativeImputer
 from sklearn.metrics import precision_recall_curve,classification_report,roc_curve, auc
 from sklearn.metrics import average_precision_score
+from sklearn.inspection import permutation_importance
+from sklearn.impute import KNNImputer
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+
+from sklearn.linear_model import BayesianRidge
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import ExtraTreesRegressor
+from sklearn.neighbors import KNeighborsRegressor,KNeighborsClassifier,NearestNeighbors
+from sklearn.pipeline import make_pipeline
+from sklearn.model_selection import cross_val_score
 
 
 #URL for data 
 url = 'https://github.com/beoutbreakprepared/nCoV2019/blob/master/latest_data/latestdata.tar.gz?raw=true'
 try:
-    res = requests.get(url,stream=True,timeout=1)
+    res = requests.get(url,stream=True,timeout=5)
     # If the response was successful, no Exception will be raised
     res.raise_for_status()
 except HTTPError as http_err:
@@ -147,15 +158,16 @@ else:
             #smaller_df['difference_travel_confirmation']=(smaller_df['travel_history_dates'] - smaller_df['date_confirmation']).dt.days
             
             #cyclical data (dates), change to be able to process it
-            dates = ['date_confirmation_year','date_confirmation_month','date_confirmation_day','date_confirmation_dayofweek']
+            dates = ['date_confirmation_month','date_confirmation_day','date_confirmation_dayofweek'] #except year which is not cyclic
             def encode_cyclic_data(df, feature, max_val): #sin,cos, transformation for cyclic data
                 df[feature + '_sin'] = np.sin(2 * np.pi * df[feature]/max_val)
                 df[feature + '_cos'] = np.cos(2 * np.pi * df[feature]/max_val)
                 return df
-            smaller_df = encode_cyclic_data(smaller_df,dates[0],2020)
-            smaller_df = encode_cyclic_data(smaller_df,dates[1],12)
-            smaller_df = encode_cyclic_data(smaller_df,dates[2],365)
-            smaller_df = encode_cyclic_data(smaller_df,dates[3],7)
+            smaller_df = encode_cyclic_data(smaller_df,dates[0],12)
+            smaller_df = encode_cyclic_data(smaller_df,dates[1],365)
+            smaller_df = encode_cyclic_data(smaller_df,dates[2],7)
+            for dat in dates:
+                smaller_df.drop(dat,axis=1,inplace=True)
 
             smaller_df.drop('date_onset_symptoms',axis=1,inplace=True)
             smaller_df.drop('date_admission_hospital',axis=1,inplace=True)
@@ -183,10 +195,43 @@ else:
             #Drop the outcome column, instead we now have the deceased binary
             smaller_df.drop('outcome',axis=1,inplace=True)
             y=pd.Series(deceased_binary)
+            categorical_data = list(smaller_df.select_dtypes(include=['object','bool']).columns)
+            smaller_df[categorical_data] = smaller_df[categorical_data].apply(lambda series: pd.Series(
+                LabelEncoder().fit_transform(series[series.notnull()]),
+                index=series[series.notnull()].index
+            ))
+            imp_cat = IterativeImputer(estimator=RandomForestClassifier(), 
+                           initial_strategy='most_frequent',
+                           max_iter=10, random_state=0)
+
+            smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])
             ##Split data into test and training set
             X_train, X_test, y_train, y_test = train_test_split(smaller_df, y, test_size=0.2,random_state=0,stratify=y,shuffle=True)
             print(X_train.shape, y_train.shape)
             print(X_test.shape, y_test.shape)
+
+            #Try different imputation techniques
+            estimators = [
+                BayesianRidge(),
+                DecisionTreeRegressor(max_features='sqrt', random_state=0),
+                ExtraTreesRegressor(n_estimators=10, random_state=0),
+                KNeighborsRegressor(n_neighbors=8)
+            ]
+            #imputer = IterativeImputer(random_state=0, estimator=BayesianRidge())
+            #imputer.fit(X_train)
+            #Xtrans = imputer.transform(X_train)
+            #print(X_trans)
+            #print('Missing: %d' % sum(np.isnan(Xtrans).flatten()))
+            
+            '''
+            imp_num = IterativeImputer(estimator=RandomForestRegressor(),
+                                    initial_strategy='mean',
+                                    max_iter=10, random_state=0)
+            imp_cat = IterativeImputer(estimator=RandomForestClassifier(), 
+                                    initial_strategy='most_frequent',
+                                    max_iter=10, random_state=0)
+            '''
+
 
             ##Encode data
             #numerical data
@@ -196,21 +241,32 @@ else:
             #"difference_confirmation_deathordischarge","difference_travel_confirmation"]]
             numerical_data = list(X_train.select_dtypes(include=['float64','int64']))
             num_pipeline = Pipeline([
-                ('imputer', SimpleImputer(strategy = 'most_frequent')),
-                ('std_scaler', StandardScaler()),
+                #('imputer', SimpleImputer(strategy = 'most_frequent')),
+                ('imputer', IterativeImputer(random_state=0, estimator=KNeighborsRegressor(n_neighbors=5,n_jobs=-1))),
+                ('std_scaler', StandardScaler())
             ])
 
             #categorical data
             categorical_data = list(X_train.select_dtypes(include=['object','bool']).columns)
+            
             #trans = [('cat',OneHotEncoder(),categorical_data),('num',num_pipeline,numerical_data)]
             cat_pipeline = Pipeline(steps = [
-                ('imputer', SimpleImputer(strategy = 'most_frequent')),
-                ('encoder', OneHotEncoder(handle_unknown='ignore'))])
+                ('imputer', SimpleImputer(strategy = 'most_frequent'))
+                #('encoder', OneHotEncoder(handle_unknown='ignore')),
+                #('encoder', OrdinalEncoder()),
+                #('imputer', IterativeImputer(random_state=0, estimator=ExtraTreesRegressor(n_estimators=10, random_state=0))),
+                #('imp', SimpleImputer(strategy = 'most_frequent'))
+                #('imputer',KNNImputer(n_neighbors=5))
+                #('encoder', OneHotEncoder(handle_unknown='ignore'))
+                #IterativeImputer(estimator=RandomForestClassifier(), initial_strategy='most_frequent', max_iter=10, random_state=0)
+            ])
             full_pipeline = ColumnTransformer([('cat',cat_pipeline,categorical_data),('num',num_pipeline,numerical_data)],remainder='passthrough')
             #Logistic Regression
             log_regression = LogisticRegression(max_iter=500,random_state=0)
             log_pipeline = Pipeline(steps=[('prep',full_pipeline), ('model', log_regression)])
+            #print(full_pipeline.fit_transform(X_train))
             log_pipeline.fit(X_train,y_train)
+            
 
             #########################
             #Using prediction pipeline in a grid search
@@ -246,10 +302,30 @@ else:
             log_score=log_pipeline.score(X_test, y_test)
             print("model score: %.5f" % log_score)
 
-            #check results with confusion matrix
+            #Feature importance
+            feat_imp = permutation_importance(log_pipeline,X_train,y_train,n_repeats=10,random_state=0,n_jobs=-1)
+            sorted_feat_imp = feat_imp.importances_mean.argsort()
+            f, ax = plt.subplots()
+            ax.boxplot(feat_imp.importances[sorted_feat_imp].T,vert=False,labels=X_train.columns[sorted_feat_imp])
+            ax.set_title("Permutation Importances of training set")
+            f.tight_layout()
+            plt.show()
+
+            ##
+            ##Heat map use one-hot encoding, can use as first step for feature selection!!
+
+            #Compare performance of model on training and test data to see if overfitting
+            #Check results of training set with confusion matrix
+            log_prediction_y_train = log_pipeline.predict(X_train)
+            log_confusion_m_train = pd.crosstab(y_train,log_prediction_y_train,rownames=['Real Values'],colnames=['Predicted Values'],margins=True)
+            print(log_confusion_m_train,'\n')
+            print("Classification report training set:")
+            print(classification_report(y_train, log_prediction_y_train))
+
+            #Check results of testset with confusion matrix
             log_confusion_m = pd.crosstab(y_test,log_prediction_y,rownames=['Real Values'],colnames=['Predicted Values'],margins=True)
             print(log_confusion_m,'\n')
-            print("Classification report:")
+            print("Classification report test set:")
             print(classification_report(y_test, log_prediction_y))
             #roc curve
             def roc_and_precision_recall(y,score_y):
@@ -331,14 +407,14 @@ else:
             bin_analysis(log_results,10,True)
 
             ##Feature importance analysis
-            df_imp = pd.DataFrame(np.std(X_train, 0), columns=['std'])
-            print(log_regression.coef_)
-            df_imp['coef'] = log_regression.coef_[0]
-            df_imp['coef*std'] = [list(log_regression.coef_[0])[i]*list(np.std(X_train, 0))[i] for i in range(len(df_imp.index))]
-            df_imp['abs(coef*std)'] = np.abs(df_imp['coef*std'])
-            df_imp['log_rank'] = dfimp['abs(coef*std)'].rank(ascending=False)
-            df_rank = df_imp.sort_values('log_rank',ascending=True)
-            print(df_rank)
+            #df_imp = pd.DataFrame(np.std(X_train, 0), columns=['std'])
+            #print(log_regression.coef_)
+            #df_imp['coef'] = log_regression.coef_[0]
+            #df_imp['coef*std'] = [list(log_regression.coef_[0])[i]*list(np.std(X_train, 0))[i] for i in range(len(df_imp.index))]
+            #df_imp['abs(coef*std)'] = np.abs(df_imp['coef*std'])
+            #df_imp['log_rank'] = dfimp['abs(coef*std)'].rank(ascending=False)
+            #df_rank = df_imp.sort_values('log_rank',ascending=True)
+            #print(df_rank)
 
 
 
