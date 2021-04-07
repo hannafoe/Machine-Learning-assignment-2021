@@ -28,6 +28,11 @@ from sklearn.neighbors import KNeighborsRegressor,KNeighborsClassifier,NearestNe
 from sklearn.pipeline import make_pipeline
 from sklearn.model_selection import cross_val_score
 
+import eli5
+from eli5.sklearn import PermutationImportance
+#from IPython.core.display import display, HTML
+from IPython.display import display
+
 
 #URL for data 
 url = 'https://github.com/beoutbreakprepared/nCoV2019/blob/master/latest_data/latestdata.tar.gz?raw=true'
@@ -123,8 +128,8 @@ else:
             smaller_df.drop('data_moderator_initials',axis=1,inplace=True)
             smaller_df.drop('ID',axis=1,inplace=True)
             ##Drop all location data except for longitude and latitude
-            smaller_df.drop('city',axis=1,inplace=True)
-            smaller_df.drop('province',axis=1,inplace=True)
+            #smaller_df.drop('city',axis=1,inplace=True)
+            #smaller_df.drop('province',axis=1,inplace=True)
             #smaller_df.drop('country',axis=1,inplace=True)
             smaller_df.drop('geo_resolution',axis=1,inplace=True)
             smaller_df.drop('location',axis=1,inplace=True)
@@ -208,15 +213,17 @@ else:
                 LabelEncoder().fit_transform(series[series.notnull()]),
                 index=series[series.notnull()].index
             ))
-            imp_cat = IterativeImputer(estimator=RandomForestClassifier(), 
+            imp_cat = IterativeImputer(estimator=RandomForestClassifier(max_depth=3), 
                            initial_strategy='most_frequent',
                            max_iter=10, random_state=0)
 
-            smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])
+            #smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])
             ##Split data into test and training set
             X_train, X_test, y_train, y_test = train_test_split(smaller_df, y, test_size=0.2,random_state=0,stratify=y,shuffle=True)
+            X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.05, random_state=0)
             print(X_train.shape, y_train.shape)
             print(X_test.shape, y_test.shape)
+            print(X_val,y_val)
 
             #Try different imputation techniques
             estimators = [
@@ -309,6 +316,26 @@ else:
             #Use score to get accuracy of model
             log_score=log_pipeline.score(X_test, y_test)
             print("model score: %.5f" % log_score)
+
+            #Feature importance
+            print(eli5.explain_weights_df(log_pipeline,feature_names=X_train.columns.tolist()))
+            print('HIHI')
+
+            #perm = PermutationImportance(log_pipeline, random_state=1,cv="prefit").fit(X_val, y_val)
+            #print(eli5.explain_weights_df(perm,feature_names=X_train.columns.tolist()))
+            #print(perm.feature_importances_)
+            #print(perm.results_)
+            #print(perm.scores_)
+            #print(perm.explain)
+
+            #feat_imp = permutation_importance(log_pipeline,X_val,y_val,n_jobs=-1,random_state=0,n_repeats=6)#,n_repeats=6,random_state=0,n_jobs=-1)
+            #sorted_feat_imp = feat_imp.importances_mean.argsort()
+            #f, ax = plt.subplots()
+            #ax.boxplot(feat_imp.importances[sorted_feat_imp].T,vert=False,labels=X_val.columns[sorted_feat_imp])
+            #ax.set_title("Permutation Importances of training set")
+            #f.tight_layout()
+            #plt.show()
+
 
 
             ##
@@ -405,9 +432,12 @@ else:
                 print(roc_df)
 
             bin_analysis(log_results,10,True)
+            '''
+            perm = PermutationImportance(log_pipeline, random_state=1).fit(X_test, y_test)
+            eli5.show_weights(perm, feature_names=X_test.columns.tolist())
 
             #Feature importance
-            feat_imp = permutation_importance(log_pipeline,X_train,y_train,n_repeats=10,random_state=0,n_jobs=-1)
+            feat_imp = permutation_importance(log_pipeline,X_test,y_test,n_jobs=-1,random_state=0)#,n_repeats=6,random_state=0,n_jobs=-1)
             sorted_feat_imp = feat_imp.importances_mean.argsort()
             f, ax = plt.subplots()
             ax.boxplot(feat_imp.importances[sorted_feat_imp].T,vert=False,labels=X_train.columns[sorted_feat_imp])
@@ -427,7 +457,7 @@ else:
 
 
 
-            '''
+            
             #Example online
             # determine categorical and numerical features
             numerical_ix = X.select_dtypes(include=['int64', 'float64']).columns
