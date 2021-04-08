@@ -95,25 +95,35 @@ else:
 
             #Sort out the numeric correlations
             numerical_data = list(smaller_df.select_dtypes(include=['int64','float64']).columns)
-            corr_df = smaller_df[numerical_data].corr()
+            numerical_data.remove('latitude')
+            numerical_data.remove('longitude')
+            corr_df = abs(smaller_df[numerical_data].corr()) 
+            df_rank = corr_df.sort_values('deceased_binary',ascending=False)
+            print(df_rank)
+            df_rank = df_rank[:11]
+            print(df_rank)
             for word in corr_df.index:
                 print(corr_df[word]['deceased_binary'],word,'deceased_binary')
                 for other in corr_df:
-                    if corr_df[word][other]>0.5:
+                    if corr_df[word][other]>0.8:
                         print(corr_df[word][other],word,other)
+                        df_rank = df_rank.drop(other)
+
+            print(df_rank)
 
 
 
-
+            #zero_matrix=[0.0*len(numerical_data) for i in range(len(keywords))]
+            #new_df = pd.DataFrame(zero_matrix,columns=numerical_data,index=numerical_data)
             #corr_df = smaller_df.corr()
             #plot_heatmap(corr_df,'Correlation heatmap')
 
             #differences = ['difference_onset_admission','difference_onset_confirmation','difference_travel_onset','difference_onset_deathordischarge','difference_confirmation_admission',
             #'difference_travel_admission','difference_admission_deathordischarge','difference_confirmation_deathordischarge','difference_travel_confirmation','deceased_binary']
             differences = []
-            for word in smaller_df.index:
-                if 'differences' in word:
-                    differences.extend(word)
+            for word in list(smaller_df.columns):
+                if "difference" in word:
+                    differences.append(word)
                 
             #word if word in re.compile('differences') for word in list(smaller_df.index)
             #re.findall('differences',list(smaller_df.index))
