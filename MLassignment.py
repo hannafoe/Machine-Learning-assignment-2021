@@ -27,11 +27,10 @@ from sklearn.ensemble import ExtraTreesRegressor
 from sklearn.neighbors import KNeighborsRegressor,KNeighborsClassifier,NearestNeighbors
 from sklearn.pipeline import make_pipeline
 from sklearn.model_selection import cross_val_score
-
+from statistics import mean
 import eli5
 from eli5.sklearn import PermutationImportance
-#from IPython.core.display import display, HTML
-from IPython.display import display
+import scipy.stats as ss
 
 
 #URL for data 
@@ -87,6 +86,12 @@ else:
             #print(df['outcome'].value_counts())
             #print("Nan: ",df['outcome'].isna().sum())
             #print()
+            def plot_heatmap(df,title):
+                fig, ax = plt.subplots()
+                ax = sns.heatmap(df,cmap='BrBG',annot=True,annot_kws={'size':6})
+                ax.set_title(title, fontsize=10, fontweight='bold')
+                fig.tight_layout()
+                plt.show()
 
 
             #First clean the data: Drop rows,columns or impute missing data
@@ -95,7 +100,7 @@ else:
             df['outcome'].replace(to_replace=['discharged','Discharged from hospital','discharge'],value='Discharged',inplace=True)
             df['outcome'].replace(to_replace=['Under treatment','treated in an intensive care unit (14.02.2020)','critical condition, intubated as of 14.02.2020','Symptoms only improved with cough. Currently hospitalized for follow-up.','critical condition','severe illness','Critical condition','unstable','severe','Migrated','Migrated_Other'],value='Receiving Treatment',inplace=True)
             df['outcome'].replace(to_replace=['stable','stable condition'],value='Stable',inplace=True)
-            
+
             
             #Work only with subset of data where outcome!=Nan
             sub_df = df[df['outcome'].isna()==False]
@@ -120,7 +125,6 @@ else:
             smaller_df['date_onset_symptoms'+'_day']=smaller_df['date_onset_symptoms'].dt.day
             smaller_df['date_onset_symptoms'+'_dayofweek']=smaller_df['date_onset_symptoms'].dt.dayofweek
             print(smaller_df.info())
-
             ##Check which features to drop...
             smaller_df.drop('reported_market_exposure',axis=1,inplace=True)
             smaller_df.drop('sequence_available',axis=1,inplace=True)
@@ -128,21 +132,21 @@ else:
             smaller_df.drop('data_moderator_initials',axis=1,inplace=True)
             smaller_df.drop('ID',axis=1,inplace=True)
             ##Drop all location data except for longitude and latitude
-            #smaller_df.drop('city',axis=1,inplace=True)
+            smaller_df.drop('city',axis=1,inplace=True)
             #smaller_df.drop('province',axis=1,inplace=True)
             #smaller_df.drop('country',axis=1,inplace=True)
             smaller_df.drop('geo_resolution',axis=1,inplace=True)
-            smaller_df.drop('location',axis=1,inplace=True)
-            smaller_df.drop('admin3',axis=1,inplace=True)
-            smaller_df.drop('admin2',axis=1,inplace=True)
-            smaller_df.drop('admin1',axis=1,inplace=True)
-            smaller_df.drop('country_new',axis=1,inplace=True)
+            #smaller_df.drop('location',axis=1,inplace=True)
+            #smaller_df.drop('admin3',axis=1,inplace=True)
+            #smaller_df.drop('admin2',axis=1,inplace=True)
+            #smaller_df.drop('admin1',axis=1,inplace=True)
+            #smaller_df.drop('country_new',axis=1,inplace=True)
             ###
-            smaller_df.drop('symptoms',axis=1,inplace=True)
+            #smaller_df.drop('symptoms',axis=1,inplace=True)
             smaller_df.drop('lives_in_Wuhan',axis=1,inplace=True)
             smaller_df.drop('additional_information',axis=1,inplace=True)
-            smaller_df.drop('chronic_disease',axis=1,inplace=True)
-            smaller_df.drop('source',axis=1,inplace=True)
+            #smaller_df.drop('chronic_disease',axis=1,inplace=True)
+            #smaller_df.drop('source',axis=1,inplace=True)
             #smaller_df.drop('admin_id',axis=1,inplace=True)
             #Drop those with many nan values
             n = len(smaller_df.index)
@@ -167,17 +171,18 @@ else:
             #smaller_df['difference_travel_confirmation']=(smaller_df['travel_history_dates'] - smaller_df['date_confirmation']).dt.days
             
             #cyclical data (dates), change to be able to process it
-            dates = ['date_confirmation_month','date_confirmation_day','date_confirmation_dayofweek','date_onset_symptoms_month','date_onset_symptoms_day','date_onset_symptoms_dayofweek'] #except year which is not cyclic
+            #dates = ['date_confirmation_month','date_confirmation_day','date_confirmation_dayofweek','date_onset_symptoms_month','date_onset_symptoms_day','date_onset_symptoms_dayofweek'] #except year which is not cyclic
+            dates = ['date_confirmation_month','date_confirmation_day','date_confirmation_dayofweek','date_onset_symptoms_month','date_onset_symptoms_day','date_onset_symptoms_dayofweek']
             def encode_cyclic_data(df, feature, max_val): #sin,cos, transformation for cyclic data
                 df[feature + '_sin'] = np.sin(2 * np.pi * df[feature]/max_val)
                 df[feature + '_cos'] = np.cos(2 * np.pi * df[feature]/max_val)
                 return df
             smaller_df = encode_cyclic_data(smaller_df,dates[0],12)
             smaller_df = encode_cyclic_data(smaller_df,dates[1],365)
-            smaller_df = encode_cyclic_data(smaller_df,dates[2],7)
-            smaller_df = encode_cyclic_data(smaller_df,dates[3],12)
-            smaller_df = encode_cyclic_data(smaller_df,dates[4],365)
-            smaller_df = encode_cyclic_data(smaller_df,dates[5],7)
+            #smaller_df = encode_cyclic_data(smaller_df,dates[2],7)
+            smaller_df = encode_cyclic_data(smaller_df,dates[2],12)
+            smaller_df = encode_cyclic_data(smaller_df,dates[3],365)
+            smaller_df = encode_cyclic_data(smaller_df,dates[4],7)
             for dat in dates:
                 smaller_df.drop(dat,axis=1,inplace=True)
 
@@ -208,19 +213,70 @@ else:
             smaller_df.drop('outcome',axis=1,inplace=True)
             y=pd.Series(deceased_binary)
             
+            #label_enc = LabelEncoder()
+            #smaller_df.iloc[:,0] = label_enc.fit_transform(smaller_df.iloc[:,0]).astype('float64')
             categorical_data = list(smaller_df.select_dtypes(include=['object','bool']).columns)
             smaller_df[categorical_data] = smaller_df[categorical_data].apply(lambda series: pd.Series(
                 LabelEncoder().fit_transform(series[series.notnull()]),
                 index=series[series.notnull()].index
             ))
-            imp_cat = IterativeImputer(estimator=RandomForestClassifier(max_depth=3), 
+            corr_df = smaller_df.corr()
+            plot_heatmap(corr_df,'Correlation heatmap')
+            
+            
+            '''
+            categorical_data = list(smaller_df.select_dtypes(include=['object','bool']).columns)
+            smaller_df[categorical_data] = smaller_df[categorical_data].apply(lambda series: pd.Series(
+                LabelEncoder().fit_transform(series[series.notnull()]),
+                index=series[series.notnull()].index
+            ))
+            imp_cat = IterativeImputer(estimator=RandomForestClassifier(max_depth=5), 
                            initial_strategy='most_frequent',
                            max_iter=10, random_state=0)
 
-            #smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])
+            smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])
+            '''
+            '''
+            #Check the correlation between the data to see which columns to drop
+            #The following function was taken from the following website
+            #https://towardsdatascience.com/the-search-for-categorical-correlation-a1cf7f1888c9
+            def cramers_v(x, y):#x,y lists
+                confusion_matrix = pd.crosstab(x,y)
+                chi2 = ss.chi2_contingency(confusion_matrix)[0]
+                n = confusion_matrix.sum().sum()
+                phi2 = chi2/n
+                r,k = confusion_matrix.shape
+                phi2corr = max(0, phi2-((k-1)*(r-1))/(n-1))
+                rcorr = r-((r-1)**2)/(n-1)
+                kcorr = k-((k-1)**2)/(n-1)
+                return np.sqrt(phi2corr/min((kcorr-1),(rcorr-1)))
+            def pearson(x,y):#x,y lists
+                cov=0
+                std_x=0
+                std_y=0
+                x_mean = mean(x)
+                y_mean = mean(y)
+                for i in range(len(x)):
+                    cov += (x[i]-x_mean)*(y[i]-y_mean)
+                    std_x +=(x[i]-x_mean)**2
+                    std_y += (y[i]-y_mean)**2
+                if ((std_x*std_y)**0.5)==0:
+                    pearson_xy = 0
+                else:
+                    pearson_xy = cov/((std_x*std_y)**0.5)
+                return pearson_xy
+            def calculate_correlation_dataframe(df,new_df):
+                for index1, row1 in df.iterrows():
+                    #print(row1)
+                    x=row1
+                    for index2, row2 in df.iterrows():
+                        y=row2
+                        #new_df.at[index1,index2]=cosine_similarity(x,y)
+            
+            
             ##Split data into test and training set
             X_train, X_test, y_train, y_test = train_test_split(smaller_df, y, test_size=0.2,random_state=0,stratify=y,shuffle=True)
-            X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.05, random_state=0)
+            X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.02, random_state=0)
             print(X_train.shape, y_train.shape)
             print(X_test.shape, y_test.shape)
             print(X_val,y_val)
@@ -239,6 +295,7 @@ else:
             #print('Missing: %d' % sum(np.isnan(Xtrans).flatten()))
             
             '''
+            '''
             imp_num = IterativeImputer(estimator=RandomForestRegressor(),
                                     initial_strategy='mean',
                                     max_iter=10, random_state=0)
@@ -246,7 +303,7 @@ else:
                                     initial_strategy='most_frequent',
                                     max_iter=10, random_state=0)
             '''
-
+            '''
 
             ##Encode data
             #numerical data
@@ -318,11 +375,19 @@ else:
             print("model score: %.5f" % log_score)
 
             #Feature importance
-            print(eli5.explain_weights_df(log_pipeline,feature_names=X_train.columns.tolist()))
+            #https://katstam.com/regression-feature_importance/
+            cat_columns = list(log_pipeline.named_steps['prep'].named_transformers_['cat'].named_steps['encoder'].get_feature_names(input_features=categorical_data))
+            num_columns = list(numerical_data)
+            num_columns.extend(cat_columns)
+            print(eli5.explain_weights(log_pipeline.named_steps['model'], feature_names=num_columns, feature_filter=lambda x: x != '<BIAS>'))
+            print(eli5.explain_weights_df(log_pipeline.named_steps['model'], feature_names=num_columns))
+            
+            #print(eli5.explain_weights_df(log_regression,feature_names=X_train.columns.tolist()))
             print('HIHI')
 
-            #perm = PermutationImportance(log_pipeline, random_state=1,cv="prefit").fit(X_val, y_val)
-            #print(eli5.explain_weights_df(perm,feature_names=X_train.columns.tolist()))
+            perm = PermutationImportance(log_pipeline.named_steps['model'], random_state=1,cv="prefit",scoring="balanced_accuracy").fit(X_val, y_val)
+            print(eli5.explain_weights_df(perm,feature_names=num_columns))
+            #print(eli5.explain_weights_df(log_pipeline,feature_names=X_train.columns.tolist()))
             #print(perm.feature_importances_)
             #print(perm.results_)
             #print(perm.scores_)
@@ -432,6 +497,7 @@ else:
                 print(roc_df)
 
             bin_analysis(log_results,10,True)
+            '''
             '''
             perm = PermutationImportance(log_pipeline, random_state=1).fit(X_test, y_test)
             eli5.show_weights(perm, feature_names=X_test.columns.tolist())
