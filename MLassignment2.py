@@ -80,15 +80,15 @@ else:
                 smaller_df[feature+'_dayofweek']=smaller_df[feature].dt.dayofweek
             
 
-            smaller_df['difference_onset_admission']=(smaller_df['date_onset_symptoms'] - smaller_df['date_admission_hospital']).dt.days
-            smaller_df['difference_onset_confirmation']=(smaller_df['date_onset_symptoms'] - smaller_df['date_confirmation']).dt.days
-            smaller_df['difference_travel_onset']=(smaller_df['travel_history_dates'] - smaller_df['date_onset_symptoms']).dt.days
-            smaller_df['difference_onset_deathordischarge']=(smaller_df['date_onset_symptoms'] - smaller_df['date_death_or_discharge']).dt.days
-            smaller_df['difference_confirmation_admission']=(smaller_df['date_confirmation'] - smaller_df['date_admission_hospital']).dt.days
-            smaller_df['difference_travel_admission']=(smaller_df['travel_history_dates'] - smaller_df['date_admission_hospital']).dt.days
-            smaller_df['difference_admission_deathordischarge']=(smaller_df['date_admission_hospital'] - smaller_df['date_death_or_discharge']).dt.days
-            smaller_df['difference_confirmation_deathordischarge']=(smaller_df['date_confirmation'] - smaller_df['date_death_or_discharge']).dt.days
-            smaller_df['difference_travel_confirmation']=(smaller_df['travel_history_dates'] - smaller_df['date_confirmation']).dt.days
+            smaller_df['difference_onset_admission']=(smaller_df['date_onset_symptoms'] - smaller_df['date_admission_hospital'])/np.timedelta64(1,'D')
+            smaller_df['difference_onset_confirmation']=(smaller_df['date_onset_symptoms'] - smaller_df['date_confirmation'])/np.timedelta64(1,'D')
+            smaller_df['difference_travel_onset']=(smaller_df['travel_history_dates'] - smaller_df['date_onset_symptoms'])/np.timedelta64(1,'D')
+            smaller_df['difference_onset_deathordischarge']=(smaller_df['date_onset_symptoms'] - smaller_df['date_death_or_discharge'])/np.timedelta64(1,'D')
+            smaller_df['difference_confirmation_admission']=(smaller_df['date_confirmation'] - smaller_df['date_admission_hospital'])/np.timedelta64(1,'D')
+            smaller_df['difference_travel_admission']=(smaller_df['travel_history_dates'] - smaller_df['date_admission_hospital'])/np.timedelta64(1,'D')
+            smaller_df['difference_admission_deathordischarge']=(smaller_df['date_admission_hospital'] - smaller_df['date_death_or_discharge'])/np.timedelta64(1,'D')
+            smaller_df['difference_confirmation_deathordischarge']=(smaller_df['date_confirmation'] - smaller_df['date_death_or_discharge'])/np.timedelta64(1,'D')
+            smaller_df['difference_travel_confirmation']=(smaller_df['travel_history_dates'] - smaller_df['date_confirmation'])/np.timedelta64(1,'D')#.dt.days
 
             deceased_binary=[1 if (smaller_df['outcome'][i])=='Deceased' else 0 for i in smaller_df.index]
             smaller_df['deceased_binary']=deceased_binary
@@ -100,16 +100,22 @@ else:
             corr_df = abs(smaller_df[numerical_data].corr()) 
             df_rank = corr_df.sort_values('deceased_binary',ascending=False)
             print(df_rank)
-            df_rank = df_rank[:11]
+            df_rank = df_rank[:13]
             print(df_rank)
-            for word in corr_df.index:
-                print(corr_df[word]['deceased_binary'],word,'deceased_binary')
-                for other in corr_df:
-                    if corr_df[word][other]>0.8:
-                        print(corr_df[word][other],word,other)
+            for word in df_rank.index:
+                for other in df_rank.index:
+                    if df_rank[word][other]>0.8 and word!=other and smaller_df[word].isna().sum()<smaller_df[other].isna().sum():#df_rank[word]['deceased_binary']>df_rank[other]['deceased_binary']:
+                        print(df_rank[word][other],word,other)
+                        print(smaller_df[word].isna().sum(),smaller_df[other].isna().sum())
                         df_rank = df_rank.drop(other)
 
             print(df_rank)
+            for col in smaller_df.columns:
+                if ((smaller_df[col].dtype == np.float64 or smaller_df[col].dtype == np.int64) and col not in df_rank.index and col not in ['latitude','longitude']):
+                    print(col)
+                    smaller_df.drop(col,axis=1,inplace=True)
+            print(smaller_df)
+
 
 
 
@@ -120,6 +126,7 @@ else:
 
             #differences = ['difference_onset_admission','difference_onset_confirmation','difference_travel_onset','difference_onset_deathordischarge','difference_confirmation_admission',
             #'difference_travel_admission','difference_admission_deathordischarge','difference_confirmation_deathordischarge','difference_travel_confirmation','deceased_binary']
+            '''
             differences = []
             for word in list(smaller_df.columns):
                 if "difference" in word:
@@ -130,7 +137,7 @@ else:
             differences.extend('deceased_binary')
             diff_corr_df = smaller_df[differences].corr()
             plot_heatmap(diff_corr_df,'Correlation heatmap')
-'''
+
             dates = re.findall('date',list(smaller_df.index))
             dates.extend('deceased_binary')
             dates_corr_df = smaller_df[dates].corr()
