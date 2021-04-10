@@ -108,6 +108,7 @@ else:
 
             deceased_binary=[1 if (smaller_df['outcome'][i])=='Deceased' else 0 for i in smaller_df.index]
             smaller_df['deceased_binary']=deceased_binary
+            smaller_df.drop('outcome',axis=1,inplace=True)
             
             #Drop all columns with too many nan values and data that seems bad
             smaller_df.drop('ID',axis=1,inplace=True)
@@ -143,6 +144,12 @@ else:
                     print(col)
                     smaller_df.drop(col,axis=1,inplace=True)
             print(smaller_df)
+            #Now we can drop all dat features
+            smaller_df.drop('date_onset_symptoms',axis=1,inplace=True)
+            smaller_df.drop('date_admission_hospital',axis=1,inplace=True)
+            smaller_df.drop('date_confirmation',axis=1,inplace=True)
+            smaller_df.drop('travel_history_dates',axis=1,inplace=True)
+            smaller_df.drop('date_death_or_discharge',axis=1,inplace=True)
 
             #Now deal with categorical data
             
@@ -220,29 +227,156 @@ else:
                 if col not in best_cat_features and col not in ['age','sex']:
                     smaller_df.drop(col,axis=1,inplace=True)
             print(smaller_df.columns)
+            
+            ##Split data into test and training set
+            X_train, X_test, y_train, y_test = train_test_split(smaller_df, y, test_size=0.2,random_state=0,stratify=y,shuffle=True)
+            X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.02, random_state=0)
+            print(X_train.shape, y_train.shape)
+            print(X_test.shape, y_test.shape)
+            print(X_val,y_val)
+            
+            numerical_data = list(X_train.select_dtypes(include=['float64','int64']))
+            num_pipeline = Pipeline([
+                #('imputer', SimpleImputer(strategy = 'most_frequent')),
+                ('imputer', IterativeImputer(random_state=0, estimator=KNeighborsRegressor(n_neighbors=10,n_jobs=-1))),
+                ('std_scaler', StandardScaler())
+            ])
+
+            #categorical data
+            categorical_data = list(X_train.select_dtypes(include=['object','bool']).columns)
+            cat_pipeline = Pipeline(steps = [
+                ('imputer', SimpleImputer(strategy = 'most_frequent')),
+                ('encoder', OneHotEncoder(handle_unknown='ignore'))
+            ])
+            full_pipeline = ColumnTransformer([('cat',cat_pipeline,categorical_data),('num',num_pipeline,numerical_data)],remainder='passthrough')
+            #Logistic Regression
             '''
-            cat_selection = SelectKBest(score_func=chi2, k=10)
-            X = cat_selection.fit_transform(X,y)
-            print(X.shape)
-            print(X)
+            log_grid = {'C': [0.001, 0.01, 0.1, 1, 10, 100, 1000], 'penalty': ['l1', 'l2']}
+            log_regression = LogisticRegression(max_iter=500,random_state=0)
+            #clf_lr = LogisticRegression(class_weight='balanced', dual=False, 
+            #          fit_intercept=True, intercept_scaling=1, max_iter=200,
+            #          n_jobs=1, random_state=0, tol=0.0001, verbose=0, warm_start=False)
+            
+            # Cross validated grid search
+            log_grid_search = GridSearchCV(log_regression, log_grid, return_train_score=True)
+            
+            # Fit the model
+            log_grid_search.fit(X_train, y_train)
+            
+            # Plot
+            best_score_log, log_regression = plot_2d_grid_search_heatmap(log_grid_search, log_grid, 'C', 'penalty')
+            
+            # Print Logistic Regression specific attributes
+            print("intercept_:")
+            print(log_regression.intercept_ )
+            print()
+            print("coef_:")
+            print(log_regression.coef_)'''
+            log_regression = LogisticRegression(max_iter=500,random_state=0)
+            log_pipeline = Pipeline(steps=[('prep',full_pipeline), ('model', log_regression)])
+            log_pipeline.fit(X_train,y_train)
+            
+            #prediction
+            #X_test = full_pipeline.transform(X_test)
+            log_prediction_y = log_pipeline.predict(X_test)
+            log_score_y = log_pipeline.predict_proba(X_test)
+            probs = log_score_y[:,1]
+            
+            #Use score to get accuracy of model
+            log_score=log_pipeline.score(X_test, y_test)
+            print("model score: %.5f" % log_score)
+            
+            #Compare performance of model on training and test data to see if overfitting
+            #Check results of training set with confusion matrix
+            log_prediction_y_train = log_pipeline.predict(X_train)
+            log_confusion_m_train = pd.crosstab(y_train,log_prediction_y_train,rownames=['Real Values'],colnames=['Predicted Values'],margins=True)
+            print(log_confusion_m_train,'\n')
+            print("Classification report training set:")
+            print(classification_report(y_train, log_prediction_y_train))
 
-            for feature in range(len(cat_selection.scores_)):
-                print('Feature %s: %f' % (categorical_data[feature], cat_selection.scores_[feature]))
-            # plot the scores
-            fig, ax = plt.subplots()
-            ax = sns.barplot(x=[categorical_data[i] for i in range(len(cat_selection.scores_))], y=cat_selection.scores_)
-            ax.set_title("Categorical feature selection", fontsize=10, fontweight='bold')
-            plt.xlabel("features")
-            plt.ylabel("scores")
-            fig.tight_layout()
-            plt.show()
+            #Check results of testset with confusion matrix
+            log_confusion_m = pd.crosstab(y_test,log_prediction_y,rownames=['Real Values'],colnames=['Predicted Values'],margins=True)
+            print(log_confusion_m,'\n')
+            print("Classification report test set:")
+            print(classification_report(y_test, log_prediction_y))
+            #roc curve
+            def roc_and_precision_recall(y,score_y):
+                fpr, tpr, thresh = roc_curve(y, score_y)
+                precision, recall, thresholds = precision_recall_curve(y, score_y)
+                average_precision = average_precision_score(y,score_y)
+                fig, axs = plt.subplots(1,2)
+                axs[0].plot(fpr,tpr,color='orange',label='ROC curve')
+                axs[0].plot([0,1],[0,1],color='navy',linestyle='--')
+                axs[0].set_title('ROC Curve')
+                axs[0].set(xlabel='FPR',ylabel='TPR')
+                axs[0].legend(loc="lower right")
+                axs[1].plot(recall,precision,color='navy',label='Precision recall curve')
+                axs[1].set_title('Precision-Recall curve')
+                axs[1].set(xlabel='Recall',ylabel='Precision')
+                axs[1].legend(loc="lower left")
+                fig.suptitle('Average precision-recall score: {0:0.2f}'.format(average_precision))
+                fig.tight_layout()
+                plt.show()
+            roc_and_precision_recall(y_test,probs)
 
-            imp_cat = IterativeImputer(estimator=RandomForestClassifier(max_depth=5), 
-                           initial_strategy='most_frequent',
-                           max_iter=10, random_state=0)
+            ##rank the probabilities into percentile bins
+            
+            log_results = pd.DataFrame({'Target':y_test,'class_result':log_prediction_y,'probs':probs})
+            log_results['rank']=log_results['probs'].rank(ascending=1).astype(int)
+            log_results['rank_pct']=log_results['probs'].rank(ascending=1,pct=True)
+            bins = 10
+            def bin_analysis(df,bin_num,plot):
+                cols = ['min_rank','max_rank','min_prob','max_prob','num_pos_instances','bin_size','pos_rate']
+                roc_cols = ['min_prob','max_prob','Sensitivity (TPR)','FNR','FPR','Specificity (TNR)']
+                num_ins = len(df.index)
+                bin_df = pd.DataFrame(columns=cols)
+                roc_df = pd.DataFrame(columns=roc_cols)
+                count = 0
+                bin_size = int(num_ins/bin_num)
+                c=0
+                bin_maxs=[]
+                for i in range(bin_num):
+                    if (i%10)<int((num_ins/bin_num-bin_size)*10):
+                        c+=bin_size+1
+                        bin_maxs.append(c)
+                    else:
+                        c+=bin_size
+                        bin_maxs.append(c)
+                bin_maxs[bin_num-1]=num_ins
+                for i in range(bin_num):
+                    df_sub = df[(df['rank']>count) & (df['rank']<=bin_maxs[i])]
+                    count+=df_sub.shape[0]
+                    num_pos_instances=len(df_sub[df_sub['Target']==1])
+                    bin_df.loc[i]=([count-df_sub.shape[0],count,min(df_sub['probs']),max(df_sub['probs']),num_pos_instances,df_sub.shape[0],num_pos_instances/df_sub.shape[0]])
+                    
+                    sub_df_sm = df[df['rank']<bin_maxs[i]]
+                    sub_df_l = df[df['rank']>=bin_maxs[i]]
+                    TP = len(sub_df_l[sub_df_l['Target']==1])
+                    FN = len(sub_df_sm[sub_df_sm['Target']==1])
+                    TPR = TP/(TP+FN)
+                    FP = len(sub_df_l.index)-TP
+                    TN = len(sub_df_sm.index)-FN
+                    FPR = FP/(FP+TN)
+                    roc_df.loc[i]=[min(df_sub['probs']),max(df_sub['probs']),TPR,1-TPR,FPR,1-FPR]
+                print("Positive counts per bin: ")
+                print(bin_df)
+                pos =len(df[df['Target']==1])
+                print("Overall: ")
+                print("Number of positive instances: ", pos)
+                print("Number of instances: ",len(df.index))
+                print("Positive rate: ",pos/len(df.index))
+                if plot==True:
+                    fig, ax = plt.subplots()
+                    ax = sns.barplot(x=bin_df.index,y='pos_rate',data=bin_df)
+                    ax.set_title("Positive rate per bin", fontsize=10, fontweight='bold')
+                    plt.xlabel("Bins")
+                    plt.ylabel("Positive rate")
+                    fig.tight_layout()
+                    plt.show()
+                print("ROC stats: ")
+                print(roc_df)
 
-            smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])
-'''
+            bin_analysis(log_results,10,True)
 
 
 
