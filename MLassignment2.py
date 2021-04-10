@@ -139,8 +139,10 @@ else:
                         df_rank = df_rank.drop(other)
 
             print(df_rank)
+            best_num_data = list(df_rank.index)
+            best_num_data.extend(['latitude','longitude'])
             for col in smaller_df.columns:
-                if ((smaller_df[col].dtype == np.float64 or smaller_df[col].dtype == np.int64) and col not in df_rank.index and col not in ['latitude','longitude']):
+                if ((smaller_df[col].dtype == np.float64 or smaller_df[col].dtype == np.int64) and col not in best_num_data):
                     print(col)
                     smaller_df.drop(col,axis=1,inplace=True)
             print(smaller_df)
@@ -222,20 +224,27 @@ else:
             cat_df = cat_df.sort_values('rank',ascending=True)
             print(cat_df)
             best_cat_features = list(cat_df['features'].iloc[:10])
+            if 'age' not in best_cat_features:
+                best_cat_features.append('age')
+            if 'sex' not in best_cat_features:
+                best_cat_features.append('sex')
             print(best_cat_features)
             for col in categorical_data:
-                if col not in best_cat_features and col not in ['age','sex']:
+                if col not in best_cat_features:
                     smaller_df.drop(col,axis=1,inplace=True)
             print(smaller_df.columns)
             
             ##Split data into test and training set
+            #Drop the deceased_binary column
+            smaller_df.drop('deceased_binary',axis=1,inplace=True)
+            best_num_data.remove('deceased_binary')
             X_train, X_test, y_train, y_test = train_test_split(smaller_df, y, test_size=0.2,random_state=0,stratify=y,shuffle=True)
             X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.02, random_state=0)
             print(X_train.shape, y_train.shape)
             print(X_test.shape, y_test.shape)
             print(X_val,y_val)
             
-            numerical_data = list(X_train.select_dtypes(include=['float64','int64']))
+            numerical_data = best_num_data#list(X_train.select_dtypes(include=['float64','int64']))
             num_pipeline = Pipeline([
                 #('imputer', SimpleImputer(strategy = 'most_frequent')),
                 ('imputer', IterativeImputer(random_state=0, estimator=KNeighborsRegressor(n_neighbors=10,n_jobs=-1))),
@@ -243,7 +252,7 @@ else:
             ])
 
             #categorical data
-            categorical_data = list(X_train.select_dtypes(include=['object','bool']).columns)
+            categorical_data = best_cat_features#list(X_train.select_dtypes(include=['object','bool']).columns)
             cat_pipeline = Pipeline(steps = [
                 ('imputer', SimpleImputer(strategy = 'most_frequent')),
                 ('encoder', OneHotEncoder(handle_unknown='ignore'))
