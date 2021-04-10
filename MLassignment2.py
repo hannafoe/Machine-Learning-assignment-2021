@@ -15,7 +15,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import SimpleImputer,IterativeImputer
-from sklearn.metrics import precision_recall_curve,classification_report,roc_curve, auc
+from sklearn.metrics import precision_recall_curve,classification_report,roc_curve, auc,mean_squared_error
 from sklearn.metrics import average_precision_score
 from sklearn.inspection import permutation_importance
 from sklearn.impute import KNNImputer
@@ -30,9 +30,8 @@ from sklearn.model_selection import cross_val_score
 from statistics import mean
 import eli5
 from eli5.sklearn import PermutationImportance
-import scipy.stats as ss
 from sklearn.model_selection import GridSearchCV
-
+from scipy import stats
 
 url = 'https://github.com/beoutbreakprepared/nCoV2019/blob/master/latest_data/latestdata.tar.gz?raw=true'
 try:
@@ -239,6 +238,7 @@ else:
             #Drop the deceased_binary column
             smaller_df.drop('deceased_binary',axis=1,inplace=True)
             best_num_data.remove('deceased_binary')
+            final_columns = smaller_df.columns
             X_train, X_test, y_train, y_test = train_test_split(smaller_df, y, test_size=0.2,random_state=0,stratify=y,shuffle=True)
             X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.02, random_state=0)
             print(X_train.shape, y_train.shape)
@@ -262,7 +262,7 @@ else:
             X_train = full_pipeline.fit_transform(X_train)
             #Logistic Regression
             
-            log_grid = {'C': [2,4,6,8,10,12], 'solver':['lbfgs','liblinear']}
+            log_grid = {'C': [4,5,6,7,8,9,10], 'solver':['lbfgs','liblinear']}
             log_regression = LogisticRegression(max_iter=500,random_state=0)
             
             #clf_lr = LogisticRegression(class_weight='balanced', dual=False, 
@@ -270,7 +270,7 @@ else:
             #          n_jobs=1, random_state=0, tol=0.0001, verbose=0, warm_start=False)
             
             # Cross validated grid search
-            log_grid_search = GridSearchCV(log_regression, log_grid, return_train_score=True)
+            log_grid_search = GridSearchCV(log_regression, log_grid, return_train_score=True,cv=10)
             
             # Fit the model
             log_grid_search.fit(X_train, y_train)
@@ -305,6 +305,16 @@ else:
             print(log_confusion_m,'\n')
             print("Classification report test set:")
             print(classification_report(y_test, log_prediction_y))
+            #Mean squared error
+            log_mse = mean_squared_error(y_test, log_prediction_y)
+            print("Mean squared error: ",log_mse)
+            #Confidence interval
+            #https://colab.research.google.com/github/ageron/handson-ml2/blob/master/02_end_to_end_machine_learning_project.ipynb#scrollTo=Bziq7SvDmuqf
+            log_sqe_list = (log_prediction_y - y_test)**2 #squared error list
+            log_mean = mean(log_sqe_list) #other mean module maybe??
+            log_zscore = stats.norm.ppf(1.95 / 2)
+            log_zmargin = log_zscore * log_sqe_list.std(ddof=1)/np.sqrt(len(y_test))
+            print("Confidence Interval: ",np.sqrt(log_mean - log_zmargin), np.sqrt(log_mean + log_zmargin))
             #roc curve
             def roc_and_precision_recall(y,score_y):
                 fpr, tpr, thresh = roc_curve(y, score_y)
@@ -383,6 +393,18 @@ else:
                 print(roc_df)
 
             bin_analysis(log_results,10,True)
+            #Feature importance analysis
+            X_val = full_pipeline.transform(X_val)
+            print(eli5.explain_weights_df(log_regression,feature_names=final_columns))#X_train.columns.tolist()))
+            perm = PermutationImportance(log_regression, random_state=1,cv="prefit",scoring="balanced_accuracy").fit(X_val, y_val)
+            print(eli5.explain_weights_df(perm,feature_names=final_columns))#X_val.columns.tolist()))
+            print(perm.feature_importances_)
+            #print(eli5.explain_weights_df(log_pipeline,feature_names=X_train.columns.tolist()))
+            #print(perm.feature_importances_)
+            #print(perm.results_)
+            #print(perm.scores_)
+            #print(perm.explain)
+
 
 
 
