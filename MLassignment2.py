@@ -139,10 +139,10 @@ else:
                         df_rank = df_rank.drop(other)
 
             print(df_rank)
-            best_num_data = list(df_rank.index)
-            best_num_data.extend(['latitude','longitude'])
+            best_num_features = list(df_rank.index)
+            best_num_features.extend(['latitude','longitude'])
             for col in smaller_df.columns:
-                if ((smaller_df[col].dtype == np.float64 or smaller_df[col].dtype == np.int64) and col not in best_num_data):
+                if ((smaller_df[col].dtype == np.float64 or smaller_df[col].dtype == np.int64) and col not in best_num_features):
                     print(col)
                     smaller_df.drop(col,axis=1,inplace=True)
             print(smaller_df)
@@ -233,19 +233,22 @@ else:
                 if col not in best_cat_features:
                     smaller_df.drop(col,axis=1,inplace=True)
             print(smaller_df.columns)
+            #Order the columns such that first all categorical features, then all numerical features
+            smaller_df = pd.concat([smaller_df[best_cat_features], smaller_df[best_num_features]], axis=1, join="inner")
+            print(smaller_df.columns)
             
             ##Split data into test and training set
             #Drop the deceased_binary column
             smaller_df.drop('deceased_binary',axis=1,inplace=True)
-            best_num_data.remove('deceased_binary')
-            final_columns = smaller_df.columns
+            best_num_features.remove('deceased_binary')
+            
             X_train, X_test, y_train, y_test = train_test_split(smaller_df, y, test_size=0.2,random_state=0,stratify=y,shuffle=True)
             X_train, X_val, y_train, y_val = train_test_split(X_train, y_train, test_size=0.02, random_state=0)
             print(X_train.shape, y_train.shape)
             print(X_test.shape, y_test.shape)
             print(X_val,y_val)
             
-            numerical_data = best_num_data#list(X_train.select_dtypes(include=['float64','int64']))
+            numerical_data = best_num_features#list(X_train.select_dtypes(include=['float64','int64']))
             num_pipeline = Pipeline([
                 #('imputer', SimpleImputer(strategy = 'most_frequent')),
                 ('imputer', IterativeImputer(random_state=0, estimator=KNeighborsRegressor(n_neighbors=10,n_jobs=-1))),
@@ -254,15 +257,21 @@ else:
 
             #categorical data
             categorical_data = best_cat_features#list(X_train.select_dtypes(include=['object','bool']).columns)
+            one = OneHotEncoder(handle_unknown='ignore')
             cat_pipeline = Pipeline(steps = [
                 ('imputer', SimpleImputer(strategy = 'most_frequent')),
-                ('encoder', OneHotEncoder(handle_unknown='ignore'))
+                ('encoder', one)
             ])
             full_pipeline = ColumnTransformer([('cat',cat_pipeline,categorical_data),('num',num_pipeline,numerical_data)],remainder='passthrough')
             X_train = full_pipeline.fit_transform(X_train)
-            #Logistic Regression
+            #one.fit(X_val[categorical_data])
+            #cat_one_features = one.get_feature_names(categorical_data)
+            #final_columns = list(cat_one_features)
+            #final_columns.extend(numerical_data)
+            #print(final_columns)
             
-            log_grid = {'C': [4,5,6,7,8,9,10], 'solver':['lbfgs','liblinear']}
+            #Logistic Regression
+            log_grid = {'C': [4,5], 'solver':['lbfgs','liblinear']}#'C': [4,5,6,7,8,9,10]
             log_regression = LogisticRegression(max_iter=500,random_state=0)
             
             #clf_lr = LogisticRegression(class_weight='balanced', dual=False, 
@@ -279,6 +288,7 @@ else:
             
             log_regression = log_grid_search.best_estimator_
             
+            
             #log_regression.fit(X_train,y_train)
             #log_pipeline = Pipeline(steps=[('prep',full_pipeline), ('model', log_regression)])
             
@@ -291,6 +301,24 @@ else:
             #Use score to get accuracy of model
             log_score=log_regression.score(X_test, y_test)
             print("model score: %.5f" % log_score)
+            
+            #Feature importance analysis
+            print("Log regression classes:")
+            print(log_regression.classes_,len(log_regression.classes_))
+            print("Log regression coefs")
+            print(log_regression.coef_,len(log_regression.coef_[0]))
+            final_columns = list(full_pipeline.named_transformers_['cat'].named_steps['encoder'].get_feature_names(input_features=categorical_data))
+            final_columns.extend(numerical_data)
+            print(final_columns)
+            X_val = full_pipeline.transform(X_val)
+            print(eli5.explain_weights_df(log_regression,feature_names=final_columns))#X_train.columns.tolist()))
+            #perm = PermutationImportance(log_regression, random_state=1,cv="prefit",scoring="balanced_accuracy").fit(X_val.toarray(), y_val)
+            #print(eli5.explain_weights_df(perm,feature_names=final_columns))#X_val.columns.tolist()))
+            #print(eli5.explain_weights_df(log_pipeline,feature_names=X_train.columns.tolist()))
+            #print(perm.feature_importances_)
+            #print(perm.results_)
+            #print(perm.scores_)
+            #print(perm.explain)
             
             #Compare performance of model on training and test data to see if overfitting
             #Check results of training set with confusion matrix
@@ -393,17 +421,7 @@ else:
                 print(roc_df)
 
             bin_analysis(log_results,10,True)
-            #Feature importance analysis
-            X_val = full_pipeline.transform(X_val)
-            print(eli5.explain_weights_df(log_regression,feature_names=final_columns))#X_train.columns.tolist()))
-            perm = PermutationImportance(log_regression, random_state=1,cv="prefit",scoring="balanced_accuracy").fit(X_val, y_val)
-            print(eli5.explain_weights_df(perm,feature_names=final_columns))#X_val.columns.tolist()))
-            print(perm.feature_importances_)
-            #print(eli5.explain_weights_df(log_pipeline,feature_names=X_train.columns.tolist()))
-            #print(perm.feature_importances_)
-            #print(perm.results_)
-            #print(perm.scores_)
-            #print(perm.explain)
+            
 
 
 
