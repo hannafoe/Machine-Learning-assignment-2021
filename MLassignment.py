@@ -304,6 +304,8 @@ else:
                                     max_iter=10, random_state=0)
             '''
             '''
+            Do some feature selection for each model
+             ('feature_selection', SelectFromModel(LinearSVC(penalty="l1"))),
 
             ##Encode data
             #numerical data

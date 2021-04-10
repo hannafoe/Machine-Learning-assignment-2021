@@ -8,7 +8,7 @@ import requests
 from requests.exceptions import HTTPError
 import xlsxwriter
 from sklearn.model_selection import train_test_split
-from sklearn.feature_selection import SelectKBest,chi2
+from sklearn.feature_selection import SelectKBest,chi2,mutual_info_classif,f_classif
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder,StandardScaler, OrdinalEncoder
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
@@ -108,6 +108,15 @@ else:
 
             deceased_binary=[1 if (smaller_df['outcome'][i])=='Deceased' else 0 for i in smaller_df.index]
             smaller_df['deceased_binary']=deceased_binary
+            
+            #Drop all columns with too many nan values and data that seems bad
+            smaller_df.drop('ID',axis=1,inplace=True)
+            n = len(smaller_df.index)
+            for v in smaller_df.columns:
+                if n-smaller_df[v].isna().sum()<200: #not nan values<200
+                    smaller_df.drop(v,axis=1,inplace=True)
+                    print(v)#,n-smaller_df[v].isna().sum())
+            print(smaller_df.columns)
 
             #Sort out the numeric correlations
             numerical_data = list(smaller_df.select_dtypes(include=['int64','float64']).columns)
@@ -141,30 +150,93 @@ else:
             #sort out the categorical correlations
             categorical_data = list(smaller_df.select_dtypes(include=['object','bool']).columns)
             print(categorical_data)
-            y = smaller_df['deceased_binary']
-            X = smaller_df[categorical_data]
-            X = X.astype(str)
             #Label Encode all data
+            
             label_encoder = LabelEncoder()
-            for col in X.columns:
-                X[col] = label_encoder.fit_transform(X[col])
-            #for col in categorical_data:
-            #    smaller_df[col] = label_encoder.fit_transform(smaller_df[col])
-           cat_selection = SelectKBest(score_func=chi2, k=10)
-            X = cat_selection.fit_transform(X,y)
-            print(X.shape)
+            for col in categorical_data:
+                smaller_df[col] = smaller_df[col].astype(str)
+                smaller_df[col] = label_encoder.fit_transform(smaller_df[col])
+            imp_cat = IterativeImputer(estimator=RandomForestClassifier(max_depth=5), 
+                           initial_strategy='most_frequent',
+                           max_iter=10, random_state=0)
 
+            smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])
+            print(smaller_df[categorical_data])
+            #writer = pd.ExcelWriter('./data.xlsx',engine='xlsxwriter')
+            #smaller_df.to_excel(writer, sheet_name='Sheet1')
+            #writer.save()
+            '''
+            file = './data.xlsx'
+            smaller_df = pd.read_excel(file)
+            smaller_df.drop('Unnamed: 0',axis=1)
+            '''
+            y = smaller_df['deceased_binary']
+            X = pd.DataFrame(smaller_df[categorical_data])#,index=categorical_data)
+            print(X)
+            
+            
+            cat_selection = SelectKBest(score_func=mutual_info_classif, k=10)
+            cat_selection.fit_transform(X,y)
             for feature in range(len(cat_selection.scores_)):
-                print('Feature %d: %f' % (feature, cat_selection.scores_[feature]))
+                print('Feature %s: %f' % (categorical_data[feature], cat_selection.scores_[feature]))
             # plot the scores
             fig, ax = plt.subplots()
-            ax = sns.barplot(x=[i for i in range(len(cat_selection.scores_))], y=cat_selection.scores_)
+            ax = sns.barplot(x=[categorical_data[i] for i in range(len(cat_selection.scores_))], y=cat_selection.scores_)
             ax.set_title("Categorical feature selection", fontsize=10, fontweight='bold')
             plt.xlabel("features")
             plt.ylabel("scores")
             fig.tight_layout()
             plt.show()
-'''
+            cat_df = pd.DataFrame({
+                'features':categorical_data,
+                'mutual_info_classif':cat_selection.scores_
+                })
+            cat_df = cat_df.sort_values('mutual_info_classif',ascending=False)
+            cat_df['rank_mutual_info_classif']=[i for i in range(len(cat_df))]
+            print(cat_df)
+            
+            cat_selection = SelectKBest(score_func=f_classif, k=10)
+            cat_selection.fit_transform(X,y)
+            for feature in range(len(cat_selection.scores_)):
+                print('Feature %s: %f' % (categorical_data[feature], cat_selection.scores_[feature]))
+            fig, ax = plt.subplots()
+            ax = sns.barplot(x=[categorical_data[i] for i in range(len(cat_selection.scores_))], y=cat_selection.scores_)
+            ax.set_title("Categorical feature selection", fontsize=10, fontweight='bold')
+            plt.xlabel("features")
+            plt.ylabel("scores")
+            fig.tight_layout()
+            plt.show()
+            cat_df['f_classif'] = cat_selection.scores_
+            cat_df = cat_df.sort_values('f_classif',ascending=False)
+            cat_df['rank_f_classif']=[i for i in range(len(cat_df))]
+            print(cat_df)
+            #Those that are ranked high in both, add rankings up and divide by two
+            cat_df['rank']=cat_df['rank_mutual_info_classif']+cat_df['rank_f_classif']
+            cat_df = cat_df.sort_values('rank',ascending=True)
+            print(cat_df)
+            best_cat_features = list(cat_df['features'].iloc[:10])
+            print(best_cat_features)
+            for col in categorical_data:
+                if col not in best_cat_features and col not in ['age','sex']:
+                    smaller_df.drop(col,axis=1,inplace=True)
+            print(smaller_df.columns)
+            '''
+            cat_selection = SelectKBest(score_func=chi2, k=10)
+            X = cat_selection.fit_transform(X,y)
+            print(X.shape)
+            print(X)
+
+            for feature in range(len(cat_selection.scores_)):
+                print('Feature %s: %f' % (categorical_data[feature], cat_selection.scores_[feature]))
+            # plot the scores
+            fig, ax = plt.subplots()
+            ax = sns.barplot(x=[categorical_data[i] for i in range(len(cat_selection.scores_))], y=cat_selection.scores_)
+            ax.set_title("Categorical feature selection", fontsize=10, fontweight='bold')
+            plt.xlabel("features")
+            plt.ylabel("scores")
+            fig.tight_layout()
+            plt.show()
+
             imp_cat = IterativeImputer(estimator=RandomForestClassifier(max_depth=5), 
                            initial_strategy='most_frequent',
                            max_iter=10, random_state=0)
