@@ -31,6 +31,7 @@ from statistics import mean
 import eli5
 from eli5.sklearn import PermutationImportance
 import scipy.stats as ss
+from sklearn.model_selection import GridSearchCV
 
 
 url = 'https://github.com/beoutbreakprepared/nCoV2019/blob/master/latest_data/latestdata.tar.gz?raw=true'
@@ -258,10 +259,12 @@ else:
                 ('encoder', OneHotEncoder(handle_unknown='ignore'))
             ])
             full_pipeline = ColumnTransformer([('cat',cat_pipeline,categorical_data),('num',num_pipeline,numerical_data)],remainder='passthrough')
+            X_train = full_pipeline.fit_transform(X_train)
             #Logistic Regression
-            '''
-            log_grid = {'C': [0.001, 0.01, 0.1, 1, 10, 100, 1000], 'penalty': ['l1', 'l2']}
+            
+            log_grid = {'C': [2,4,6,8,10,12], 'solver':['lbfgs','liblinear']}
             log_regression = LogisticRegression(max_iter=500,random_state=0)
+            
             #clf_lr = LogisticRegression(class_weight='balanced', dual=False, 
             #          fit_intercept=True, intercept_scaling=1, max_iter=200,
             #          n_jobs=1, random_state=0, tol=0.0001, verbose=0, warm_start=False)
@@ -271,33 +274,27 @@ else:
             
             # Fit the model
             log_grid_search.fit(X_train, y_train)
+            print("log regression best score:", log_grid_search.best_score_)
+            print("log regression best estimator:",log_grid_search.best_estimator_)
             
-            # Plot
-            best_score_log, log_regression = plot_2d_grid_search_heatmap(log_grid_search, log_grid, 'C', 'penalty')
+            log_regression = log_grid_search.best_estimator_
             
-            # Print Logistic Regression specific attributes
-            print("intercept_:")
-            print(log_regression.intercept_ )
-            print()
-            print("coef_:")
-            print(log_regression.coef_)'''
-            log_regression = LogisticRegression(max_iter=500,random_state=0)
-            log_pipeline = Pipeline(steps=[('prep',full_pipeline), ('model', log_regression)])
-            log_pipeline.fit(X_train,y_train)
+            #log_regression.fit(X_train,y_train)
+            #log_pipeline = Pipeline(steps=[('prep',full_pipeline), ('model', log_regression)])
             
             #prediction
-            #X_test = full_pipeline.transform(X_test)
-            log_prediction_y = log_pipeline.predict(X_test)
-            log_score_y = log_pipeline.predict_proba(X_test)
+            X_test = full_pipeline.transform(X_test)
+            log_prediction_y = log_regression.predict(X_test)
+            log_score_y = log_regression.predict_proba(X_test)
             probs = log_score_y[:,1]
             
             #Use score to get accuracy of model
-            log_score=log_pipeline.score(X_test, y_test)
+            log_score=log_regression.score(X_test, y_test)
             print("model score: %.5f" % log_score)
             
             #Compare performance of model on training and test data to see if overfitting
             #Check results of training set with confusion matrix
-            log_prediction_y_train = log_pipeline.predict(X_train)
+            log_prediction_y_train = log_regression.predict(X_train)
             log_confusion_m_train = pd.crosstab(y_train,log_prediction_y_train,rownames=['Real Values'],colnames=['Predicted Values'],margins=True)
             print(log_confusion_m_train,'\n')
             print("Classification report training set:")
