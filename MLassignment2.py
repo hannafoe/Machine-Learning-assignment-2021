@@ -32,6 +32,7 @@ import eli5
 from eli5.sklearn import PermutationImportance
 from sklearn.model_selection import GridSearchCV
 from scipy import stats
+from sklearn import svm
 
 url = 'https://github.com/beoutbreakprepared/nCoV2019/blob/master/latest_data/latestdata.tar.gz?raw=true'
 try:
@@ -117,6 +118,10 @@ else:
                 if n-smaller_df[v].isna().sum()<200: #not nan values<200
                     smaller_df.drop(v,axis=1,inplace=True)
                     print(v)#,n-smaller_df[v].isna().sum())
+                elif (smaller_df[v].dtype!=np.float64 and smaller_df[v].dtype!=np.int64):
+                    if n-smaller_df[v].isna().sum()<10000:
+                        smaller_df.drop(v,axis=1,inplace=True)
+                        print(v)
             print(smaller_df.columns)
 
             #Sort out the numeric correlations
@@ -147,11 +152,14 @@ else:
                     smaller_df.drop(col,axis=1,inplace=True)
             print(smaller_df)
             #Now we can drop all dat features
-            smaller_df.drop('date_onset_symptoms',axis=1,inplace=True)
-            smaller_df.drop('date_admission_hospital',axis=1,inplace=True)
-            smaller_df.drop('date_confirmation',axis=1,inplace=True)
-            smaller_df.drop('travel_history_dates',axis=1,inplace=True)
-            smaller_df.drop('date_death_or_discharge',axis=1,inplace=True)
+            dat_features = list(smaller_df.select_dtypes(include=['datetime64[ns]']).columns)
+            for v in dat_features:
+                smaller_df.drop(v,axis=1,inplace=True)
+            #smaller_df.drop('date_onset_symptoms',axis=1,inplace=True)
+            #smaller_df.drop('date_admission_hospital',axis=1,inplace=True)
+            #smaller_df.drop('date_confirmation',axis=1,inplace=True)
+            #smaller_df.drop('travel_history_dates',axis=1,inplace=True)
+            #smaller_df.drop('date_death_or_discharge',axis=1,inplace=True)
 
             #Now deal with categorical data
             
@@ -172,20 +180,12 @@ else:
                 print(len(smaller_df[col]),smaller_df[col].isna().sum())
                 smaller_df[col] = pd.Series(label_encoder.fit_transform(smaller_df[col][smaller_df[col].notna()]),index=smaller_df[col][smaller_df[col].notna()].index)
                 mappings_dict[col]=dict(zip(label_encoder.transform(label_encoder.classes_),label_encoder.classes_))
-                #fit_series = pd.Series(smaller_df[col].unique().notnull())
-                #fit_series = fit_series.astype(str)
-                #label_encoder.fit(fit_series)
-                #smaller_df[col] = label_encoder.transform(smaller_df[col])
                 print(len(smaller_df[col]),smaller_df[col].isna().sum())
                 
             
-            '''
-            smaller_df[categorical_data] = smaller_df[categorical_data].apply(lambda series: pd.Series(
-                LabelEncoder().fit_transform(series[series.notnull()]),
-                index=series[series.notnull()].index'''
-            imp_cat = IterativeImputer(estimator=RandomForestClassifier(max_depth=5), 
+            imp_cat = IterativeImputer(estimator=RandomForestClassifier(max_depth=3), 
                            initial_strategy='most_frequent',
-                           max_iter=10, random_state=0)
+                           max_iter=5, random_state=0)
 
             smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])
             print(smaller_df[categorical_data])
@@ -291,8 +291,8 @@ else:
             #print(final_columns)
             
             #Logistic Regression
-            '''
-            log_grid = {'C': [4,5], 'solver':['lbfgs','liblinear']}#'C': [4,5,6,7,8,9,10]
+            
+            log_grid = {'C': [4,5,6,7,8,10], 'solver':['lbfgs','liblinear']}#'C': [4,5,6,7,8,9,10]
             log_regression = LogisticRegression(max_iter=500,random_state=0)
             
             #clf_lr = LogisticRegression(class_weight='balanced', dual=False, 
@@ -307,11 +307,10 @@ else:
             print("log regression best score:", log_grid_search.best_score_)
             print("log regression best estimator:",log_grid_search.best_estimator_)
             
-            log_regression = log_grid_search.best_estimator_'''
-            log_regression = LogisticRegression(C=5, max_iter=500, random_state=0)
-            log_regression.fit(X_train,y_train)
-            
+            log_regression = log_grid_search.best_estimator_
+            #log_regression = LogisticRegression(C=5, max_iter=500, random_state=0)
             #log_regression.fit(X_train,y_train)
+            
             #log_pipeline = Pipeline(steps=[('prep',full_pipeline), ('model', log_regression)])
             
             #prediction
@@ -343,7 +342,7 @@ else:
                         if mappings_dict[feature][ending]=='nan':
                             print(ending,col[:(len(feature))])
                             print(mappings_dict[feature][ending])
-                        final_columns.append(col[:(len(feature))]+"_"+mappings_dict[feature][ending])
+                        final_columns.append(str(col[:(len(feature))])+"_"+str(mappings_dict[feature][ending]))
             final_columns.extend(numerical_data)
             #print(final_columns)
             X_val = full_pipeline.transform(X_val)
@@ -352,9 +351,6 @@ else:
             #print(eli5.explain_weights_df(perm,feature_names=final_columns))#X_val.columns.tolist()))
             #print(eli5.explain_weights_df(log_pipeline,feature_names=X_train.columns.tolist()))
             #print(perm.feature_importances_)
-            #print(perm.results_)
-            #print(perm.scores_)
-            #print(perm.explain)
             
             #Compare performance of model on training and test data to see if overfitting
             #Check results of training set with confusion matrix
