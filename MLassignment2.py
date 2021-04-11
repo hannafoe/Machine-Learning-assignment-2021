@@ -170,11 +170,12 @@ else:
                 #print(mappings_dict[col])'''
             for col in categorical_data:
                 print(len(smaller_df[col]),smaller_df[col].isna().sum())
-                series = pd.Series(label_encoder.fit_transform(col[col.notnull()]),index=col[col.notnull()].index)
+                smaller_df[col] = pd.Series(label_encoder.fit_transform(smaller_df[col][smaller_df[col].notna()]),index=smaller_df[col][smaller_df[col].notna()].index)
+                mappings_dict[col]=dict(zip(label_encoder.transform(label_encoder.classes_),label_encoder.classes_))
                 #fit_series = pd.Series(smaller_df[col].unique().notnull())
                 #fit_series = fit_series.astype(str)
                 #label_encoder.fit(fit_series)
-                smaller_df[col] = smaller_df[col].apply(series)
+                #smaller_df[col] = label_encoder.transform(smaller_df[col])
                 print(len(smaller_df[col]),smaller_df[col].isna().sum())
                 
             
