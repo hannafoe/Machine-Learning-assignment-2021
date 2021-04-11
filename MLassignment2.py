@@ -160,17 +160,36 @@ else:
             categorical_data = list(smaller_df.select_dtypes(include=['object','bool']).columns)
             print(categorical_data)
             #Label Encode all data
-            
+            mappings_dict = {}
             label_encoder = LabelEncoder()
+            '''
             for col in categorical_data:
                 smaller_df[col] = smaller_df[col].astype(str)
                 smaller_df[col] = label_encoder.fit_transform(smaller_df[col])
+                mappings_dict[col]=dict(zip(label_encoder.transform(label_encoder.classes_),label_encoder.classes_))
+                #print(mappings_dict[col])'''
+            for col in categorical_data:
+                print(len(smaller_df[col]),smaller_df[col].isna().sum())
+                series = pd.Series(label_encoder.fit_transform(col[col.notnull()]),index=col[col.notnull()].index)
+                #fit_series = pd.Series(smaller_df[col].unique().notnull())
+                #fit_series = fit_series.astype(str)
+                #label_encoder.fit(fit_series)
+                smaller_df[col] = smaller_df[col].apply(series)
+                print(len(smaller_df[col]),smaller_df[col].isna().sum())
+                
+            
+            '''
+            smaller_df[categorical_data] = smaller_df[categorical_data].apply(lambda series: pd.Series(
+                LabelEncoder().fit_transform(series[series.notnull()]),
+                index=series[series.notnull()].index'''
             imp_cat = IterativeImputer(estimator=RandomForestClassifier(max_depth=5), 
                            initial_strategy='most_frequent',
                            max_iter=10, random_state=0)
 
             smaller_df[categorical_data] = imp_cat.fit_transform(smaller_df[categorical_data])
             print(smaller_df[categorical_data])
+            for col in categorical_data:
+                print('Missing: %d' % sum(smaller_df[col].isna()))
             #writer = pd.ExcelWriter('./data.xlsx',engine='xlsxwriter')
             #smaller_df.to_excel(writer, sheet_name='Sheet1')
             #writer.save()
@@ -181,7 +200,7 @@ else:
             '''
             y = smaller_df['deceased_binary']
             X = pd.DataFrame(smaller_df[categorical_data])#,index=categorical_data)
-            print(X)
+            #print(X)
             
             
             cat_selection = SelectKBest(score_func=mutual_info_classif, k=10)
@@ -202,7 +221,7 @@ else:
                 })
             cat_df = cat_df.sort_values('mutual_info_classif',ascending=False)
             cat_df['rank_mutual_info_classif']=[i for i in range(len(cat_df))]
-            print(cat_df)
+            #print(cat_df)
             
             cat_selection = SelectKBest(score_func=f_classif, k=10)
             cat_selection.fit_transform(X,y)
@@ -218,7 +237,7 @@ else:
             cat_df['f_classif'] = cat_selection.scores_
             cat_df = cat_df.sort_values('f_classif',ascending=False)
             cat_df['rank_f_classif']=[i for i in range(len(cat_df))]
-            print(cat_df)
+            #print(cat_df)
             #Those that are ranked high in both, add rankings up and divide by two
             cat_df['rank']=cat_df['rank_mutual_info_classif']+cat_df['rank_f_classif']
             cat_df = cat_df.sort_values('rank',ascending=True)
@@ -271,6 +290,7 @@ else:
             #print(final_columns)
             
             #Logistic Regression
+            '''
             log_grid = {'C': [4,5], 'solver':['lbfgs','liblinear']}#'C': [4,5,6,7,8,9,10]
             log_regression = LogisticRegression(max_iter=500,random_state=0)
             
@@ -286,8 +306,9 @@ else:
             print("log regression best score:", log_grid_search.best_score_)
             print("log regression best estimator:",log_grid_search.best_estimator_)
             
-            log_regression = log_grid_search.best_estimator_
-            
+            log_regression = log_grid_search.best_estimator_'''
+            log_regression = LogisticRegression(C=5, max_iter=500, random_state=0)
+            log_regression.fit(X_train,y_train)
             
             #log_regression.fit(X_train,y_train)
             #log_pipeline = Pipeline(steps=[('prep',full_pipeline), ('model', log_regression)])
@@ -307,11 +328,25 @@ else:
             print(log_regression.classes_,len(log_regression.classes_))
             print("Log regression coefs")
             print(log_regression.coef_,len(log_regression.coef_[0]))
-            final_columns = list(full_pipeline.named_transformers_['cat'].named_steps['encoder'].get_feature_names(input_features=categorical_data))
+            #CHECK THIS TMRW!!!
+            one_hot_columns = list(full_pipeline.named_transformers_['cat'].named_steps['encoder'].get_feature_names(input_features=categorical_data))
+            final_columns=[]
+            for col in one_hot_columns:
+                for feature in categorical_data:
+                    if feature in col:
+                        if feature=="country" and "country_new" in col:
+                            continue
+                        ending = int(float(col[(len(feature)+1):]))
+                        #print(ending,col[:(len(feature))])
+                        #print(mappings_dict[feature][ending])
+                        if mappings_dict[feature][ending]=='nan':
+                            print(ending,col[:(len(feature))])
+                            print(mappings_dict[feature][ending])
+                        final_columns.append(col[:(len(feature))]+"_"+mappings_dict[feature][ending])
             final_columns.extend(numerical_data)
-            print(final_columns)
+            #print(final_columns)
             X_val = full_pipeline.transform(X_val)
-            print(eli5.explain_weights_df(log_regression,feature_names=final_columns))#X_train.columns.tolist()))
+            print(eli5.explain_weights_df(log_regression,feature_names=final_columns,top=30))#X_train.columns.tolist()))
             #perm = PermutationImportance(log_regression, random_state=1,cv="prefit",scoring="balanced_accuracy").fit(X_val.toarray(), y_val)
             #print(eli5.explain_weights_df(perm,feature_names=final_columns))#X_val.columns.tolist()))
             #print(eli5.explain_weights_df(log_pipeline,feature_names=X_train.columns.tolist()))
