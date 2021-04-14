@@ -33,6 +33,8 @@ from eli5.sklearn import PermutationImportance
 from sklearn.model_selection import GridSearchCV
 from scipy import stats
 from sklearn import svm
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
 
 url = 'https://github.com/beoutbreakprepared/nCoV2019/blob/master/latest_data/latestdata.tar.gz?raw=true'
 try:
@@ -155,11 +157,7 @@ else:
             dat_features = list(smaller_df.select_dtypes(include=['datetime64[ns]']).columns)
             for v in dat_features:
                 smaller_df.drop(v,axis=1,inplace=True)
-            #smaller_df.drop('date_onset_symptoms',axis=1,inplace=True)
-            #smaller_df.drop('date_admission_hospital',axis=1,inplace=True)
-            #smaller_df.drop('date_confirmation',axis=1,inplace=True)
-            #smaller_df.drop('travel_history_dates',axis=1,inplace=True)
-            #smaller_df.drop('date_death_or_discharge',axis=1,inplace=True)
+            print(best_num_features)
 
             #Now deal with categorical data
             
@@ -256,7 +254,11 @@ else:
             #Order the columns such that first all categorical features, then all numerical features
             smaller_df = pd.concat([smaller_df[best_cat_features], smaller_df[best_num_features]], axis=1, join="inner")
             print(smaller_df.columns)
-            
+            '''
+            writer = pd.ExcelWriter('./data.xlsx',engine='xlsxwriter')
+            smaller_df.to_excel(writer, sheet_name='Sheet1')
+            writer.save()'''
+            ###########################################################################################
             ##Split data into test and training set
             #Drop the deceased_binary column
             smaller_df.drop('deceased_binary',axis=1,inplace=True)
@@ -268,7 +270,7 @@ else:
             print(X_test.shape, y_test.shape)
             print(X_val,y_val)
             
-            numerical_data = best_num_features#list(X_train.select_dtypes(include=['float64','int64']))
+            numerical_data = best_num_features
             num_pipeline = Pipeline([
                 #('imputer', SimpleImputer(strategy = 'most_frequent')),
                 ('imputer', IterativeImputer(random_state=0, estimator=KNeighborsRegressor(n_neighbors=10,n_jobs=-1))),
@@ -284,14 +286,10 @@ else:
             ])
             full_pipeline = ColumnTransformer([('cat',cat_pipeline,categorical_data),('num',num_pipeline,numerical_data)],remainder='passthrough')
             X_train = full_pipeline.fit_transform(X_train)
-            #one.fit(X_val[categorical_data])
-            #cat_one_features = one.get_feature_names(categorical_data)
-            #final_columns = list(cat_one_features)
-            #final_columns.extend(numerical_data)
-            #print(final_columns)
-            
+            X_test = full_pipeline.transform(X_test)
+            #######################################################################
             #Logistic Regression
-            
+            '''
             log_grid = {'C': [4,5,6,7,8,10], 'solver':['lbfgs','liblinear']}#'C': [4,5,6,7,8,9,10]
             log_regression = LogisticRegression(max_iter=500,random_state=0)
             
@@ -308,73 +306,100 @@ else:
             print("log regression best estimator:",log_grid_search.best_estimator_)
             
             log_regression = log_grid_search.best_estimator_
-            #log_regression = LogisticRegression(C=5, max_iter=500, random_state=0)
-            #log_regression.fit(X_train,y_train)
+            log_regression = LogisticRegression(C=4, max_iter=500, random_state=0)
+            log_regression.fit(X_train,y_train)
             
             #log_pipeline = Pipeline(steps=[('prep',full_pipeline), ('model', log_regression)])
-            
+            ####################################################################################
             #prediction
-            X_test = full_pipeline.transform(X_test)
-            log_prediction_y = log_regression.predict(X_test)
+            
+            log_prediction_y_test = log_regression.predict(X_test)
             log_score_y = log_regression.predict_proba(X_test)
-            probs = log_score_y[:,1]
+            log_probs = log_score_y[:,1]
+            log_prediction_y_train = log_regression.predict(X_train)
             
             #Use score to get accuracy of model
             log_score=log_regression.score(X_test, y_test)
             print("model score: %.5f" % log_score)
+            '''
+            ############################################################################
+            #KNN Classification
+            '''
+            knn = KNeighborsClassifier()
+            knn_grid = {'n_neighbors': [6,8]}
+            # Cross validated grid search to find best n_neighbors
+            knn_grid_search = GridSearchCV(knn,knn_grid,return_train_score=True,cv=3)
+            # Fit the model
+            knn_grid_search.fit(X_train, y_train)
+            print("knn best score:", knn_grid_search.best_score_)
+            print("knn best estimator:",knn_grid_search.best_estimator_)
+            knn = knn_grid_search.best_estimator_'''
+            knn = KNeighborsClassifier(n_neighbors=5)
+            knn.fit(X_train,y_train)
             
+            knn_prediction_y_test = knn.predict(X_test)
+            knn_score_y = knn.predict_proba(X_test)
+            knn_probs = knn_score_y[:,1]
+            knn_prediction_y_train = knn.predict(X_train)
+            
+            #Use score to get accuracy of model
+            knn_score=knn.score(X_test,y_test)
+            print("model score: %.5f" % knn_score)
+            knn_acc = accuracy_score(y_true=y_test, y_pred=knn_prediction_y_test)
+            print("accuracy score: %.5f" % knn_acc)
+            
+            ############################################################################
             #Feature importance analysis
-            print("Log regression classes:")
-            print(log_regression.classes_,len(log_regression.classes_))
-            print("Log regression coefs")
-            print(log_regression.coef_,len(log_regression.coef_[0]))
-            #CHECK THIS TMRW!!!
-            one_hot_columns = list(full_pipeline.named_transformers_['cat'].named_steps['encoder'].get_feature_names(input_features=categorical_data))
-            final_columns=[]
-            for col in one_hot_columns:
-                for feature in categorical_data:
-                    if feature in col:
-                        if feature=="country" and "country_new" in col:
-                            continue
-                        ending = int(float(col[(len(feature)+1):]))
-                        #print(ending,col[:(len(feature))])
-                        #print(mappings_dict[feature][ending])
-                        if mappings_dict[feature][ending]=='nan':
-                            print(ending,col[:(len(feature))])
-                            print(mappings_dict[feature][ending])
-                        final_columns.append(str(col[:(len(feature))])+"_"+str(mappings_dict[feature][ending]))
-            final_columns.extend(numerical_data)
-            #print(final_columns)
-            X_val = full_pipeline.transform(X_val)
-            print(eli5.explain_weights_df(log_regression,feature_names=final_columns,top=30))#X_train.columns.tolist()))
-            #perm = PermutationImportance(log_regression, random_state=1,cv="prefit",scoring="balanced_accuracy").fit(X_val.toarray(), y_val)
-            #print(eli5.explain_weights_df(perm,feature_names=final_columns))#X_val.columns.tolist()))
-            #print(eli5.explain_weights_df(log_pipeline,feature_names=X_train.columns.tolist()))
-            #print(perm.feature_importances_)
-            
+            def feature_importance_analysis(models,X_val,y_val,perm):
+                one_hot_columns = list(full_pipeline.named_transformers_['cat'].named_steps['encoder'].get_feature_names(input_features=categorical_data))
+                final_columns=[]
+                for col in one_hot_columns:
+                    for feature in categorical_data:
+                        if feature in col:
+                            if feature=="country" and "country_new" in col:
+                                continue
+                            ending = int(float(col[(len(feature)+1):]))
+                            if mappings_dict[feature][ending]=='nan':
+                                print(ending,col[:(len(feature))])
+                                print(mappings_dict[feature][ending])
+                            final_columns.append(str(col[:(len(feature))])+"_"+str(mappings_dict[feature][ending]))
+                final_columns.extend(numerical_data)
+                X_val = full_pipeline.transform(X_val)
+                for model in models:
+                    print(eli5.explain_weights_df(model,feature_names=final_columns,top=30))
+                    if perm==True:
+                        perm = PermutationImportance(model, random_state=1,cv="prefit",scoring="balanced_accuracy").fit(X_val.toarray(), y_val)
+                        print(eli5.explain_weights_df(perm,feature_names=final_columns))
+                        print(perm.feature_importances_)
+            feature_importance_analysis([knn],X_val,y_val,False)
+            #feature_importance_analysis([log_regression,knn],X_val,y_val,False)
             #Compare performance of model on training and test data to see if overfitting
             #Check results of training set with confusion matrix
-            log_prediction_y_train = log_regression.predict(X_train)
-            log_confusion_m_train = pd.crosstab(y_train,log_prediction_y_train,rownames=['Real Values'],colnames=['Predicted Values'],margins=True)
-            print(log_confusion_m_train,'\n')
-            print("Classification report training set:")
-            print(classification_report(y_train, log_prediction_y_train))
-
-            #Check results of testset with confusion matrix
-            log_confusion_m = pd.crosstab(y_test,log_prediction_y,rownames=['Real Values'],colnames=['Predicted Values'],margins=True)
-            print(log_confusion_m,'\n')
-            print("Classification report test set:")
-            print(classification_report(y_test, log_prediction_y))
-            #Mean squared error
-            log_mse = mean_squared_error(y_test, log_prediction_y)
-            print("Mean squared error: ",log_mse)
-            #Confidence interval
-            #https://colab.research.google.com/github/ageron/handson-ml2/blob/master/02_end_to_end_machine_learning_project.ipynb#scrollTo=Bziq7SvDmuqf
-            log_sqe_list = (log_prediction_y - y_test)**2 #squared error list
-            log_mean = mean(log_sqe_list) #other mean module maybe??
-            log_zscore = stats.norm.ppf(1.95 / 2)
-            log_zmargin = log_zscore * log_sqe_list.std(ddof=1)/np.sqrt(len(y_test))
-            print("Confidence Interval: ",np.sqrt(log_mean - log_zmargin), np.sqrt(log_mean + log_zmargin))
+            
+            def performance_report(models,y_train,y_test,y_preds_train,y_preds_test):
+                for i in range(len(models)):
+                    confusion_mat_train = pd.crosstab(y_train,y_preds_train[i],rownames=['Real Values'],colnames=['Predicted Values'],margins=True)
+                    print(confusion_mat_train,'\n')
+                    print("Classification report training set ",models[i],":")
+                    print(classification_report(y_train, y_preds_train[i]))
+        
+                    #Check results of testset with confusion matrix
+                    confusion_mat_test = pd.crosstab(y_test,y_preds_test[i],rownames=['Real Values'],colnames=['Predicted Values'],margins=True)
+                    print(confusion_mat_test,'\n')
+                    print("Classification report test set ",models[i],":")
+                    print(classification_report(y_test, y_preds_test[i]))
+                    #Mean squared error
+                    mse = mean_squared_error(y_test, y_preds_test[i])
+                    print("Mean squared error ",models[i],":",mse)
+                    #Confidence interval
+                    #https://colab.research.google.com/github/ageron/handson-ml2/blob/master/02_end_to_end_machine_learning_project.ipynb#scrollTo=Bziq7SvDmuqf
+                    sqe_list = (y_preds_test[i] - y_test)**2 #squared error list
+                    mean_sqe = mean(sqe_list)
+                    z_score = stats.norm.ppf(1.95 / 2)
+                    z_margin = z_score * sqe_list.std(ddof=1)/np.sqrt(len(y_test))
+                    print("Confidence Interval: ",np.sqrt(mean_sqe - z_margin), np.sqrt(mean_sqe + z_margin))
+            performance_report([knn],y_train,y_test,[knn_prediction_y_train],[knn_prediction_y_test])
+            #performance_report([log_regression,knn],y_train,y_test,[log_prediction_y_train,knn_prediction_y_train],[log_prediction_y_test,knn_prediction_y_test])
             #roc curve
             def roc_and_precision_recall(y,score_y):
                 fpr, tpr, thresh = roc_curve(y, score_y)
@@ -393,13 +418,17 @@ else:
                 fig.suptitle('Average precision-recall score: {0:0.2f}'.format(average_precision))
                 fig.tight_layout()
                 plt.show()
-            roc_and_precision_recall(y_test,probs)
+            #roc_and_precision_recall(y_test,log_probs)
+            roc_and_precision_recall(y_test,knn_probs)
 
             ##rank the probabilities into percentile bins
-            
-            log_results = pd.DataFrame({'Target':y_test,'class_result':log_prediction_y,'probs':probs})
+            '''
+            log_results = pd.DataFrame({'Target':y_test,'class_result':log_prediction_y_test,'probs':log_probs})
             log_results['rank']=log_results['probs'].rank(ascending=1).astype(int)
-            log_results['rank_pct']=log_results['probs'].rank(ascending=1,pct=True)
+            log_results['rank_pct']=log_results['probs'].rank(ascending=1,pct=True)'''
+            knn_results = pd.DataFrame({'Target':y_test,'class_result':knn_prediction_y_test,'probs':knn_probs})
+            knn_results['rank']=knn_results['probs'].rank(ascending=1).astype(int)
+            knn_results['rank_pct']=knn_results['probs'].rank(ascending=1,pct=True)
             bins = 10
             def bin_analysis(df,bin_num,plot):
                 cols = ['min_rank','max_rank','min_prob','max_prob','num_pos_instances','bin_size','pos_rate']
@@ -452,7 +481,10 @@ else:
                 print("ROC stats: ")
                 print(roc_df)
 
-            bin_analysis(log_results,10,True)
+            #bin_analysis(log_results,bins,True)
+            bin_analysis(knn_results,bins,True)
+            print(numerical_data)
+            print(categorical_data)
             
 
 
