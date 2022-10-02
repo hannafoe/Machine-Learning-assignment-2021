@@ -50,18 +50,21 @@
 /9-1.pdf
 /9-2.pdf
 /9-3.pdf
-/Assignment - Machine Learning.pdf
+16.pdf
+17.1.pdf
+17.2.pdf
+17.3.pdf
+18.pdf
 /end_to_end_machine_learning_project_start.py
-*.pdf
+
 *.csv
 *.xlsx
 *.docx
-*.pdf
 *.PNG
 ML-code_screenshot.PNG
 ML-date_range.PNG
 Machine Learning assignment preparation.docx
-
+coursework/MLassignment*
 
 10.1038_s41597-020-0448-0-citation.ris
 10.3389-fpubh.2020.587937-citation.txt
